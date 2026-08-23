@@ -1,0 +1,12 @@
+# EFMOS EGL 1.5 native platform (no X11/Wayland)
+# Provides: eglGetDisplay, eglInitialize, eglCreateContext, eglCreateWindowSurface
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-egl
+Description: EFMOS EGL 1.5 implementation for Mesa
+Version: 1.5.0
+Requires: efm-libc efm-gbm
+Libs: -L${libdir} -lefmegl
+Cflags: -I${includedir}

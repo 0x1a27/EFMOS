@@ -1,0 +1,11 @@
+# EFMOS libc compatibility layer (freestanding, -nostdlib)
+# Provides: malloc/free, pthread, str*, stdio, mmap stubs
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-libc
+Description: EFMOS freestanding libc for Mesa
+Version: 1.0.0
+Libs: -L${libdir} -lefmlibc
+Cflags: -ffreestanding -nostdinc -I${includedir}

@@ -1,0 +1,12 @@
+# EFMOS GBM compatibility layer (buffer manager for swrast winsys)
+# Provides: gbm_create_device, gbm_bo_create, gbm_surface_create, etc.
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-gbm
+Description: EFMOS GBM stub for Mesa (wraps Graphics.drv back buffer)
+Version: 1.0.0
+Requires: efm-libc efm-libdrm
+Libs: -L${libdir} -lefmgbm
+Cflags: -I${includedir}

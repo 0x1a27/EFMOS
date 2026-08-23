@@ -1,0 +1,14 @@
+# EFMOS GPU firmware loading compatibility layer
+# Provides: request_firmware, release_firmware, firmware_loading_store
+# Used by Mesa Gallium3D hardware winsys (iris/amdgpu) at link time;
+# swrast does not invoke it at runtime.
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-fw
+Description: EFMOS GPU firmware loader stub (Linux request_firmware API)
+Version: 1.0.0
+Requires: efm-libc
+Libs: -L${libdir} -lefmfw
+Cflags: -I${includedir}

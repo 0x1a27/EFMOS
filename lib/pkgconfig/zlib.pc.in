@@ -1,0 +1,10 @@
+# Standard-name zlib.pc — alias to efm-deps (stubbed compress/uncompress/crc32/deflate/inflate)
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: zlib
+Description: EFMOS zlib stub (compression/decompression)
+Version: 1.2.13
+Libs: -L${libdir} -lefmdeps
+Cflags: -I${includedir}

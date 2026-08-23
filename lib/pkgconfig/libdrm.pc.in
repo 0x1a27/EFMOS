@@ -1,0 +1,12 @@
+# Standard-name libdrm.pc (alias of efm-libdrm)
+# Mesa meson.build uses dependency('libdrm') → searches for "libdrm.pc"
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: libdrm
+Description: EFMOS stub libdrm (Userspace interface to kernel DRM services)
+Version: 2.4.120
+Requires: efm-libc
+Libs: -L${libdir} -lefmlibdrm
+Cflags: -I${includedir}

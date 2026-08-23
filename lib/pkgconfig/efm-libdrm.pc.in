@@ -1,0 +1,13 @@
+# EFMOS libdrm compatibility layer (KMS / dumb BO / GEM close)
+# Provides: drmOpen, drmModeGetResources, drmModeAddFB, drmModeSetCrtc,
+#           drmIoctl (VERSION/GET_CAP/CREATE_DUMB/MAP_DUMB/DESTROY_DUMB/GEM_CLOSE)
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-libdrm
+Description: EFMOS libdrm stub for Mesa (routes to Graphics.drv)
+Version: 1.0.0
+Requires: efm-libc
+Libs: -L${libdir} -lefmlibdrm
+Cflags: -I${includedir}

@@ -1,0 +1,11 @@
+# Standard-name gbm.pc (alias of efm-gbm)
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: gbm
+Description: EFMOS stub GBM (generic buffer manager)
+Version: 1.0.0
+Requires: efm-libc libdrm
+Libs: -L${libdir} -lefmgbm
+Cflags: -I${includedir}

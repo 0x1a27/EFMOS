@@ -1,0 +1,10 @@
+# Stub libudev.pc — Mesa libdrm sometimes probes for udev; empty implementation
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: libudev
+Description: EFMOS stub libudev (empty impl)
+Version: 255
+Libs: -L${libdir} -lefmlibc
+Cflags: -I${includedir}

@@ -1,0 +1,56 @@
+# ========== Build Artifacts (编译产物) ==========
+*.o
+*.stripped.o
+*.elf
+*.bin
+*.efs
+*.drv
+*.tmp_head
+bootloader/BOOTX64.EFI
+kernel/kernel.elf
+
+# ========== Disk Images & ISO (磁盘镜像与安装ISO, 不开源) ==========
+*.iso
+*.img
+*.vmdk
+disk.img
+disk.vmdk
+efmos-install.iso
+target.img
+test_target.img
+
+# ========== Installation & Packaging (安装程序与封装, 不开源) ==========
+build_iso.py
+efmsfile/installer.c
+efmsfile/installer.*
+
+# ========== UEFI Firmware (UEFI 固件, 需单独下载) ==========
+OVMF*.fd
+*.fd
+
+# ========== Debug Logs (调试日志) ==========
+serial*.log
+serial_disk.log
+*.log
+
+# ========== Mesa Source & Build (Mesa 源码与构建, 体积过大) ==========
+mesa-src/
+build-efmos/
+
+# ========== Mesa Cross Build Config ==========
+mesa-cross.ini
+
+# ========== Generated pkg-config files ==========
+lib/pkgconfig/*.pc
+
+# ========== Static Libraries ==========
+lib/*.a
+
+# ========== Editor & OS Files ==========
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.bak
+*.orig

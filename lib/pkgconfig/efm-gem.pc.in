@@ -1,0 +1,12 @@
+# EFMOS GEM (Graphics Execution Manager) compatibility layer
+# Provides: drm_intel_bo / amdgpu_bo style buffer object ops (stub)
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-gem
+Description: EFMOS GEM buffer manager stub for Mesa
+Version: 1.0.0
+Requires: efm-libc efm-libdrm
+Libs: -L${libdir} -lefmgem
+Cflags: -I${includedir}

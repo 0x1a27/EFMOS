@@ -1,0 +1,11 @@
+# Stub libelf.pc — provides elf_begin/elf_end/elf_getdata (EFMOS stub)
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: libelf
+Description: EFMOS stub libelf (ELF access library)
+Version: 0.189
+Requires: efm-deps
+Libs: -L${libdir} -lefmdeps
+Cflags: -I${includedir}

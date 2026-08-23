@@ -1,0 +1,11 @@
+# Standard-name egl.pc — provides EGL 1.5 (no X11/Wayland/surfaceless)
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: egl
+Description: EFMOS EGL 1.5 native platform
+Version: 1.5
+Requires: efm-libc gbm
+Libs: -L${libdir} -lefmegl
+Cflags: -I${includedir}

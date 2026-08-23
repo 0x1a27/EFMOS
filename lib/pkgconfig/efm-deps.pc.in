@@ -1,0 +1,14 @@
+# EFMOS Mesa extra dependencies stub bundle
+# Provides: expat (XML_Parser*), zlib (deflate/inflate/crc32),
+#           libelf (elf_begin/elf_end), SHA1 (SHA1Init/Update/Final)
+# Mesa util/xmlconfig.c, disk_cache, sha1, spir-v reference these.
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: efm-deps
+Description: EFMOS bundle of Mesa aux deps (expat/zlib/libelf/sha1)
+Version: 1.0.0
+Requires: efm-libc
+Libs: -L${libdir} -lefmdeps
+Cflags: -I${includedir}
