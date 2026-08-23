@@ -196,12 +196,6 @@ static void draw_banner(void) {
  *   - 每 3 秒重新扫描 /EFMOS/DRIVERS, 自动热加载新增 .drv
  *   - 大部分时间 sleep_ms(3000) + yield, 不占 CPU */
 static void monitor_loop(void) {
-    /* [已尝试列表] 记录所有已 load_driver 过的 .drv 文件名,
-     * 避免重复加载失败的驱动 (如无 AHCI 控制器时 ahci.drv 每次都失败),
-     * 防止 CD-ROM I/O 饥饿导致系统卡死. */
-    static char tried[32][40];
-    static int tried_cnt = 0;
-
     for (;;) {
         /* sleep_ms + yield: 在 LAPIC 定时器未就绪时 sleep_ms 可能立即返回,
          * 加忙等延迟防止空转刷屏 */
@@ -223,13 +217,6 @@ static void monitor_loop(void) {
             if (scan[i].is_dir) continue;
             if (!ends_with_drv(scan[i].name)) continue;
 
-            /* 检查是否已尝试过 (按文件名匹配, 避免重复加载失败的驱动) */
-            int was_tried = 0;
-            for (int j = 0; j < tried_cnt; j++) {
-                if (my_strcmp(scan[i].name, tried[j]) == 0) { was_tried = 1; break; }
-            }
-            if (was_tried) continue;
-
             /* 检查是否已加载: 提取驱动核心名 (去掉 "NN-" 前缀和 ".drv" 后缀) */
             char drv_core[64];
             const char *fname = scan[i].name;
@@ -247,13 +234,6 @@ static void monitor_loop(void) {
                 if (my_strcmp(drv_core, loaded[j]) == 0) { already = 1; break; }
             }
             if (already) continue;
-
-            /* 记录到已尝试列表 (防止下次重复加载) */
-            if (tried_cnt < 32) {
-                int k = 0; while (scan[i].name[k] && k < 39) { tried[tried_cnt][k] = scan[i].name[k]; k++; }
-                tried[tried_cnt][k] = 0;
-                tried_cnt++;
-            }
 
             char path[256];
             build_drv_path(path, sizeof(path), scan[i].name);

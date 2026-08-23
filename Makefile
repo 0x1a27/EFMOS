@@ -244,24 +244,6 @@ disk.img: bootloader/BOOTX64.EFI kernel/kernel.elf \
 disk.vmdk: disk.img
 	qemu-img convert -f raw -O vmdk disk.img disk.vmdk
 
-# ========== EFMOS 系统安装 ISO (UEFI 可启动) ==========
-# installer.efs: 安装程序, 加载地址 0xB00000 (11MB)
-efmsfile/installer.efs: efmsfile/installer.c
-	@mkdir -p efmsfile
-	$(DRV_CC) -I. -o efmsfile/installer.o efmsfile/installer.c
-	$(DRV_OBJCOPY_STRIP) efmsfile/installer.o efmsfile/installer.stripped.o
-	$(DRV_LD_EFS) efmsfile/installer.elf -Ttext=0xB00000 efmsfile/installer.stripped.o
-	objcopy -O binary -j .text -j .rodata -j .data efmsfile/installer.elf efmsfile/installer.bin
-	$(call bin_package,efmsfile/installer,\x00\x00\xB0\x00\x00\x00\x00\x00,efs)
-
-# efmos-install.iso: UEFI 可启动安装光盘
-# 引导流程: UEFI→FAT(efi.img)→BOOTX64.EFI→扫描GPT→ext4分区→kernel.elf→内核启动
-# 安装流程: 运行 installer → 读取 /EFMOS/disk.img → 写入目标磁盘
-iso: disk.img efmsfile/installer.efs
-	python3 build_iso.py
-
-efmos-install.iso: iso
-
 # ========== Mesa 移植: EFMOS libc + libdrm 兼容层 (静态库) ==========
 # 用 -fPIC 编译以便链接进 Mesa 共享库 (.so), 用 lib/include 为系统头目录.
 EFM_LIB_CC = gcc -c -ffreestanding -fPIC -mno-red-zone \

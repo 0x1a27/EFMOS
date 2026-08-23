@@ -84,12 +84,6 @@ struct kernel_api {
                          int (*complete)(const char *prefix, char *matches, int max_n, int match_len));
     int  (*read_text)(char *buf, int max);
     int  (*fsop)(const char *op, const char *a, const char *b, char *out, int outsz);
-    /* 安装器 API (与 kernel.c struct kernel_api 严格匹配, 末尾新增) */
-    int  (*disk_count)(void);
-    unsigned long long (*disk_total_sectors)(int idx);
-    int  (*disk_read_raw)(int idx, unsigned long lba, void *buf, int count);
-    int  (*disk_write_raw)(int idx, unsigned long lba, const void *buf, int count);
-    int  (*file_read_range)(const char *path, char *buf, int offset, int len);
 };
 #define API ((struct kernel_api*)0x9000)
 

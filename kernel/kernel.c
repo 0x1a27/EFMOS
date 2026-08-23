@@ -1528,37 +1528,6 @@ static void print_hex(unsigned long long v) {
  */
 static volatile unsigned int *ahci_abar = NULL;
 static int ahci_port = -1;
-/* [多磁盘支持] 记录所有可用 AHCI 端口, 供 installer.efs 选择目标磁盘 */
-static int ahci_port_list[32];
-static int ahci_port_count = 0;
-static unsigned long ahci_disk_sectors[32]; /* 每个端口磁盘的总扇区数 */
-/* [ATAPI/CD-ROM 支持] AHCI 每端口的 ATAPI 标志 (1=CD-ROM/ATAPI, 0=ATA/HDD) */
-static int ahci_port_is_atapi[32];
-/* [ATAPI/CD-ROM 支持] IDE ATAPI 设备位置 */
-static int ide_atapi_base = 0;     /* I/O 基址 (0x1F0=primary, 0x170=secondary) */
-static int ide_atapi_dev = 0;      /* 设备号 (0=master, 1=slave) */
-/* [ATAPI/CD-ROM 支持] CD-ROM 2048 字节扇区缓存, 用于 512 字节 LBA 翻译 */
-static unsigned char atapi_cache[2048];
-static unsigned int atapi_cache_cd_lba = 0xFFFFFFFF; /* 缓存的 CD LBA (0xFFFFFFFF=无效) */
-
-/* [IDE ATA 硬盘检测] 追踪所有 IDE ATA 设备 (非 ATAPI) */
-static int ide_ata_base[4];              /* I/O 基址 (0x1F0=primary, 0x170=secondary) */
-static int ide_ata_dev[4];               /* 设备号 (0=master, 1=slave) */
-static unsigned long long ide_ata_sectors[4];
-static int ide_ata_count = 0;
-
-/* [统一磁盘列表] installer.efs 使用的统一磁盘索引
- * idx 0 = 引导设备, idx >= 1 = 其他可用磁盘
- * type: 1=IDE ATA, 2=AHCI ATA, 3=IDE ATAPI, 4=AHCI ATAPI */
-struct disk_entry {
-    int type;
-    int port;                   /* AHCI 端口号 (AHCI 类型使用) */
-    int base;                   /* IDE I/O 基址 (IDE 类型使用) */
-    int dev;                    /* IDE 设备号 (IDE 类型使用) */
-    unsigned long long sectors; /* 总扇区数 (0=未知/CD-ROM只读) */
-};
-static struct disk_entry g_disk_list[32];
-static int g_disk_count = 0;
 
 /* AHCI 内存布局:
  * 0x90000 - 命令列表 (1KB 对齐, 32个槽 x 32字节)
@@ -1626,46 +1595,6 @@ static int ahci_find_controller(void) {
     return (found == 1) ? 1 : 0;
 }
 
-/* [多磁盘] 配置指定端口用于 I/O (复用同一块命令/FIS 内存区域)
- * 在读写非引导盘前调用: 停止旧端口引擎 → 配置新端口 → 启动引擎 */
-static int ahci_setup_port(int port) {
-    if (!ahci_abar || port < 0 || port >= 32) return -1;
-    volatile unsigned int *port_regs = ahci_abar + 0x40 + port * 0x20;
-
-    /* 1. 停止引擎 */
-    port_regs[0x18/4] &= ~((1 << 0) | (1 << 4));
-    int timeout = 0;
-    while ((port_regs[0x18/4] & ((1 << 15) | (1 << 14))) && timeout < 100000) {
-        asm volatile("pause"); timeout++;
-    }
-    if (timeout >= 100000) return -1;
-
-    /* 2. 清除错误 */
-    port_regs[0x10/4] = port_regs[0x10/4];
-    port_regs[0x30/4] = port_regs[0x30/4];
-
-    /* 3. 配置命令列表和 FIS 基址 */
-    my_memset((void*)AHCI_CMD_LIST_BASE, 0, 1024);
-    my_memset((void*)AHCI_FIS_RECV_BASE, 0, 256);
-    port_regs[0x00/4] = AHCI_CMD_LIST_BASE;
-    port_regs[0x04/4] = 0;
-    port_regs[0x08/4] = AHCI_FIS_RECV_BASE;
-    port_regs[0x0C/4] = 0;
-
-    /* 4. 启动引擎: FRE → ST */
-    port_regs[0x18/4] |= (1 << 4);
-    for (volatile int i = 0; i < 1000; i++) asm volatile("pause");
-    port_regs[0x18/4] |= (1 << 0);
-
-    /* 5. 等待 CR + FR */
-    timeout = 0;
-    while (!(port_regs[0x18/4] & (1 << 15)) || !(port_regs[0x18/4] & (1 << 14))) {
-        if (++timeout > 100000) return -1;
-        asm volatile("pause");
-    }
-    return 0;
-}
-
 static int ahci_port_init(void) {
     unsigned int pi = ahci_abar[0x0C / 4];  /* Ports Implemented */
     serial_write("PI = "); serial_write_hex(pi); serial_write("\n");
@@ -1729,27 +1658,8 @@ static int ahci_port_init(void) {
         port_regs[0x30/4] = port_regs[0x30/4];
 
         if ((ssts & 0xF) == 0x3) {
-            /* [ATAPI/CD-ROM 支持] 读取 PxSIG 签名区分 ATA(HDD) vs ATAPI(CD-ROM)
-             * ATA 签名:   0x00000101 (LBA_high=0, LBA_mid=0, LBA_low=1, SC=1)
-             * ATAPI 签名: 0xEB140101 (LBA_high=0xEB, LBA_mid=0x14, LBA_low=1, SC=1)
-             * QEMU AHCI 寄存器偏移: PxSIG 在 0x24 (QEMU 布局, 非标准 0x20) */
-            unsigned int sig = port_regs[0x24/4];  /* PxSIG */
-            int is_atapi = (sig == 0xEB140101);
-            ahci_port_is_atapi[p] = is_atapi;
-
-            /* [多磁盘] 记录所有可用端口, 不止找第一个就 break */
-            if (found_port < 0) {
-                found_port = p;  /* 第一个可用端口 = 引导盘 */
-            }
-            ahci_port_list[ahci_port_count] = p;
-            /* 读取磁盘容量 (IDENTIFY DEVICE 后续补充, 先用 PxSSTS 确认存在) */
-            ahci_disk_sectors[ahci_port_count] = 0;  /* 延迟到 setup_port 后 IDENTIFY */
-            ahci_port_count++;
-            serial_write("  -> added to port list (index=0x"); serial_write_hex(ahci_port_count - 1);
-            serial_write(" port="); serial_write_hex(p);
-            serial_write(is_atapi ? " ATAPI/CD-ROM" : " ATA/HDD");
-            serial_write(" sig="); serial_write_hex(sig); serial_write(")\n");
-            /* 不再 break — 继续扫描其他端口 */
+            found_port = p;
+            break;
         }
     }
 
@@ -1916,95 +1826,10 @@ static int ahci_check_cmd_result(void) {
 /* [前向声明] ahci_build_prdt 定义在下方, 读写路径需提前调用 */
 static int ahci_build_prdt(unsigned char *cmd_table_base, const void *buf, unsigned int byte_count);
 
-/* [ATAPI/CD-ROM 支持] AHCI ATAPI 读取一个 2048 字节 CD 扇区
- * 使用 ATA PACKET (0xA0) 命令 + SCSI READ(10) CDB
- * AHCI 命令表布局:
- *   0x00-0x3F: H2D FIS (CFIS)
- *   0x40-0x4F: ATAPI Command (ACMD, 12 字节 CDB)
- *   0x80-...:  PRDT (物理区段描述表)
- * 命令头 bit5 (A=1) 标记为 ATAPI 命令, HBA 自动处理 CDB 传输 */
-static int ahci_atapi_read_2048(unsigned int cd_lba, void *buf) {
-    if (ahci_port < 0) return -1;
-    volatile unsigned int *port_regs = ahci_abar + 0x40 + ahci_port * 0x20;
-    if (ahci_wait_port_ready() != 0) return -1;
-
-    /* 命令头: CFL=5, A=1 (ATAPI 标志) */
-    volatile unsigned int *cmd_header = (volatile unsigned int*)AHCI_CMD_LIST_BASE;
-    for (int i = 0; i < 8; i++) cmd_header[i] = 0;
-    cmd_header[0] = 5 | (1 << 5);  /* CFL=5, A=1 */
-    cmd_header[1] = 0;
-    cmd_header[2] = AHCI_CMD_TABLE_BASE;
-    cmd_header[3] = 0;
-
-    /* 命令表: 清零 + 填充 FIS + ACMD + PRDT */
-    volatile unsigned int *cmd_table = (volatile unsigned int*)AHCI_CMD_TABLE_BASE;
-    for (int i = 0; i < 128; i++) cmd_table[i] = 0;
-
-    /* H2D FIS: PACKET 命令 (0xA0) */
-    volatile unsigned int *fis = cmd_table;
-    fis[0] = 0x27 | (0x80 << 8) | (0xA0 << 16);  /* type=0x27, C=1, cmd=PACKET */
-    fis[1] = 0;  /* features=0, lba=0, device=0 */
-    fis[2] = 0;
-    fis[3] = 0;
-    fis[4] = 0;
-
-    /* ACMD 在偏移 0x40: SCSI READ(10) CDB (12 字节) */
-    volatile unsigned char *acmd = (volatile unsigned char*)(AHCI_CMD_TABLE_BASE + 0x40);
-    acmd[0]  = 0x28;                              /* READ(10) opcode */
-    acmd[1]  = 0;                                 /* flags */
-    acmd[2]  = (unsigned char)(cd_lba >> 24);      /* LBA MSB (big-endian) */
-    acmd[3]  = (unsigned char)(cd_lba >> 16);
-    acmd[4]  = (unsigned char)(cd_lba >> 8);
-    acmd[5]  = (unsigned char)(cd_lba);            /* LBA LSB */
-    acmd[6]  = 0;                                 /* group */
-    acmd[7]  = 0;                                 /* transfer length MSB (1 block) */
-    acmd[8]  = 1;                                 /* transfer length LSB */
-    acmd[9]  = 0;                                 /* control */
-    acmd[10] = 0;
-    acmd[11] = 0;
-
-    /* PRDT: 2048 字节到 buf */
-    int prdt_n = ahci_build_prdt((unsigned char*)AHCI_CMD_TABLE_BASE, buf, 2048);
-    if (prdt_n <= 0) { serial_write("AHCI ATAPI: build_prdt failed\n"); return -1; }
-    cmd_header[0] |= ((unsigned int)prdt_n << 16);
-
-    /* 下发命令 */
-    port_regs[0x38/4] = 1;
-
-    /* 等待完成 */
-    int timeout = 0;
-    while (port_regs[0x38/4] & 1) {
-        if (++timeout > 5000000) {
-            serial_write("AHCI ATAPI: read timeout\n");
-            ahci_port_error_recovery();
-            return -1;
-        }
-        asm volatile("pause");
-    }
-    return ahci_check_cmd_result();
-}
-
 /* [新增] 多扇区读取: 一次 READ DMA EXT 命令读取最多 256 个扇区 */
 static int ahci_read_blocks(unsigned int lba, unsigned int count, void *buf) {
     if (ahci_port < 0 || count == 0) return -1;
     if (count > 256) count = 256;  /* 单次最多 256 扇区 (128KB) */
-
-    /* [ATAPI/CD-ROM 支持] 若当前端口为 ATAPI, 使用 512 字节 LBA 翻译
-     * CD-ROM 使用 2048 字节扇区, 内核使用 512 字节 LBA, 需翻译:
-     * cd_lba = lba512 / 4, 用 2048 字节扇区缓存提取 512 字节段 */
-    if (ahci_port >= 0 && ahci_port < 32 && ahci_port_is_atapi[ahci_port]) {
-        for (int i = 0; i < (int)count; i++) {
-            unsigned int lba512 = lba + i;
-            unsigned int cd_lba = lba512 / 4;
-            unsigned int off = (lba512 % 4) * 512;
-            if (cd_lba != atapi_cache_cd_lba) {
-                if (ahci_atapi_read_2048(cd_lba, atapi_cache) != 0) return -1;
-                atapi_cache_cd_lba = cd_lba;
-            }
-            my_memcpy((unsigned char*)buf + i * 512, atapi_cache + off, 512);
-        }
-        return 0;
-    }
 
     /* [修复] 正确的端口寄存器指针 */
     volatile unsigned int *port_regs = ahci_abar + 0x40 + ahci_port * 0x20;
@@ -2102,12 +1927,6 @@ static int ahci_read_sector(unsigned int lba, void *buf) {
 static int ahci_write_blocks(unsigned int lba, unsigned int count, const void *buf) {
     if (ahci_port < 0 || count == 0) return -1;
     if (count > 256) count = 256;
-
-    /* [ATAPI/CD-ROM] CD-ROM 只读, 拒绝写操作 (避免误写导致设备错误) */
-    if (ahci_port >= 0 && ahci_port < 32 && ahci_port_is_atapi[ahci_port]) {
-        serial_write("AHCI: write to ATAPI (read-only) rejected\n");
-        return -1;
-    }
 
     volatile unsigned int *port_regs = ahci_abar + 0x40 + ahci_port * 0x20;
 
@@ -2285,133 +2104,16 @@ static unsigned long long ahci_get_sector_count(void) {
     return sectors;
 }
 
-/* [前向声明] IDE ATA 通用读写 (定义在 IDE Driver 区, 此处供 disk API 使用) */
-static unsigned long long ide_detect_ata(unsigned int base, unsigned int dev);
-static int ide_ata_read_sector_at(unsigned int base, unsigned int dev,
-                                  unsigned int lba, void *buf);
-static int ide_ata_write_sector_at(unsigned int base, unsigned int dev,
-                                   unsigned int lba, const void *buf);
-/* [前向声明] IDE ATAPI 512 字节 LBA 翻译读取 (定义在 IDE ATAPI 区) */
-static int ide_atapi_read_sector_512(unsigned int lba512, void *buf);
-
-/* [统一磁盘 API] 供 installer.efs 使用的原始磁盘读写接口
- * 通过 g_disk_list 统一索引所有磁盘 (AHCI + IDE ATA + IDE ATAPI)
- * idx 0 = 引导设备, idx >= 1 = 其他可用磁盘 */
-static int efs_disk_count_api(void) {
-    return g_disk_count;
-}
-
-static unsigned long long efs_disk_total_sectors_api(int idx) {
-    if (idx < 0 || idx >= g_disk_count) return 0;
-    if (g_disk_list[idx].sectors != 0) return g_disk_list[idx].sectors;
-    int type = g_disk_list[idx].type;
-    if (type == 2 || type == 4) {
-        /* AHCI ATA/ATAPI */
-        int port = g_disk_list[idx].port;
-        if (port >= 0 && port < 32 && ahci_port_is_atapi[port]) return 0;
-        int saved = ahci_port;
-        if (ahci_setup_port(port) != 0) { ahci_port = saved; ahci_setup_port(saved); return 0; }
-        ahci_port = port;
-        unsigned char id_buf[512];
-        if (ahci_identify_device(id_buf) == 0) {
-            unsigned long long s = *(unsigned int*)(id_buf + 200);
-            s |= ((unsigned long long)*(unsigned int*)(id_buf + 204) << 32);
-            unsigned short w83 = *(unsigned short*)(id_buf + 83 * 2);
-            if (!(w83 & 0x400)) s = *(unsigned int*)(id_buf + 60 * 2);
-            g_disk_list[idx].sectors = s;
-        }
-        ahci_port = saved;
-        ahci_setup_port(saved);
-    } else if (type == 1) {
-        /* IDE ATA: 按需重新检测扇区数 */
-        unsigned long long s = ide_detect_ata(g_disk_list[idx].base,
-                                              g_disk_list[idx].dev);
-        g_disk_list[idx].sectors = s;
-    }
-    /* type == 3: IDE ATAPI CD-ROM, 返回 0 (只读, 容量无关) */
-    return g_disk_list[idx].sectors;
-}
-
-static int efs_disk_read_raw_api(int idx, unsigned long lba, void *buf, int count) {
-    if (idx < 0 || idx >= g_disk_count || count <= 0) return -1;
-    int type = g_disk_list[idx].type;
-    if (type == 2 || type == 4) {
-        /* AHCI ATA/ATAPI */
-        int port = g_disk_list[idx].port;
-        int saved = ahci_port;
-        if (ahci_setup_port(port) != 0) { ahci_port = saved; ahci_setup_port(saved); return -1; }
-        ahci_port = port;
-        atapi_cache_cd_lba = 0xFFFFFFFF;
-        int ret = ahci_read_blocks((unsigned int)lba, (unsigned int)count, buf);
-        ahci_port = saved;
-        ahci_setup_port(saved);
-        return ret;
-    } else if (type == 1) {
-        /* IDE ATA: 逐扇区读取 */
-        unsigned int base = g_disk_list[idx].base;
-        unsigned int dev = g_disk_list[idx].dev;
-        for (int i = 0; i < count; i++) {
-            if (ide_ata_read_sector_at(base, dev, (unsigned int)(lba + i),
-                                       (unsigned char*)buf + i * 512) != 0)
-                return -1;
-        }
-        return 0;
-    } else if (type == 3) {
-        /* IDE ATAPI CD-ROM: 使用 512 字节 LBA 翻译 */
-        int saved_base = ide_atapi_base;
-        int saved_dev = ide_atapi_dev;
-        ide_atapi_base = g_disk_list[idx].base;
-        ide_atapi_dev = g_disk_list[idx].dev;
-        atapi_cache_cd_lba = 0xFFFFFFFF;
-        for (int i = 0; i < count; i++) {
-            if (ide_atapi_read_sector_512((unsigned int)(lba + i),
-                                          (unsigned char*)buf + i * 512) != 0) {
-                ide_atapi_base = saved_base;
-                ide_atapi_dev = saved_dev;
-                return -1;
-            }
-        }
-        ide_atapi_base = saved_base;
-        ide_atapi_dev = saved_dev;
-        return 0;
-    }
-    return -1;
-}
-
-static int efs_disk_write_raw_api(int idx, unsigned long lba, const void *buf, int count) {
-    if (idx < 0 || idx >= g_disk_count || count <= 0) return -1;
-    int type = g_disk_list[idx].type;
-    if (type == 2) {
-        /* AHCI ATA (非 ATAPI) */
-        int port = g_disk_list[idx].port;
-        int saved = ahci_port;
-        if (ahci_setup_port(port) != 0) { ahci_port = saved; ahci_setup_port(saved); return -1; }
-        ahci_port = port;
-        int ret = ahci_write_blocks((unsigned int)lba, (unsigned int)count, buf);
-        ahci_flush_cache();
-        ahci_port = saved;
-        ahci_setup_port(saved);
-        return ret;
-    } else if (type == 1) {
-        /* IDE ATA: 逐扇区写入 */
-        unsigned int base = g_disk_list[idx].base;
-        unsigned int dev = g_disk_list[idx].dev;
-        for (int i = 0; i < count; i++) {
-            if (ide_ata_write_sector_at(base, dev, (unsigned int)(lba + i),
-                                        (const unsigned char*)buf + i * 512) != 0)
-                return -1;
-        }
-        return 0;
-    }
-    /* ATAPI (type 3 或 4): 只读, 拒绝写 */
-    return -1;
-}
-
 static int ahci_init_driver(void) {
     if (ahci_find_controller() != 1) return -1;
     if (ahci_port_init() != 0) return -1;
-    /* [ATAPI] 不在 init 时调用 IDENTIFY DEVICE — CD-ROM 会超时
-     * 磁盘容量按需由 efs_disk_total_sectors_api() 获取 */
+    /* [新增] 读取磁盘容量 */
+    unsigned long long sectors = ahci_get_sector_count();
+    if (sectors) {
+        serial_write("AHCI disk size: "); serial_write_hex(sectors);
+        serial_write(" sectors ("); serial_write_hex(sectors / 2 / 1024);
+        serial_write(" MB)\n");
+    }
     return 0;
 }
 
@@ -2472,348 +2174,6 @@ static int ide_write_sector(unsigned int lba, const void *buf) {
         if (!(status & 0x80)) break;  /* 等待 BSY 清除 */
         asm volatile("pause");
     }
-    return 0;
-}
-
-/* ========== IDE ATA (硬盘) 通用检测与读写 ==========
- * 支持指定 I/O 基址和设备号, 用于 installer.efs 统一磁盘 API.
- * 与 ide_read_sector/ide_write_sector 不同, 这些函数接受 base/dev 参数,
- * 可操作任意 IDE 总线位置 (primary/secondary × master/slave). */
-
-/* [IDE ATA 检测] 检测指定总线/设备位置的 ATA (非 ATAPI) 硬盘
- * 使用 SOFTWARE RESET + 签名检测区分 ATA 和 ATAPI
- * 返回: >0 = 扇区数, 0 = 非 ATA 或无设备 */
-static unsigned long long ide_detect_ata(unsigned int base, unsigned int dev) {
-    unsigned int ctrl = base + 0x206;
-
-    /* 1. 选择设备 */
-    outb(base + 6, 0xE0 | (dev << 4));
-    int timeout = 0;
-    while ((inb(base + 7) & 0x80) && ++timeout < 100000) asm volatile("pause");
-
-    /* 2. SOFTWARE RESET (与 ide_detect_atapi 相同序列) */
-    outb(ctrl, 0x04 | 0x02);   /* SRST=1, nIEN=1 */
-    for (volatile int i = 0; i < 4; i++) (void)inb(ctrl);
-    outb(ctrl, 0x00 | 0x02);   /* SRST=0, nIEN=1 */
-    timeout = 0;
-    while ((inb(base + 7) & 0x80) && ++timeout < 2000000) asm volatile("pause");
-
-    /* 3. 重新选择设备 */
-    outb(base + 6, 0xE0 | (dev << 4));
-    for (volatile int i = 0; i < 4; i++) (void)inb(base + 7);
-
-    /* 4. 读取签名 — ATAPI 签名则跳过 (由 ide_detect_atapi 处理) */
-    unsigned char sc = inb(base + 2);
-    unsigned char ll = inb(base + 3);
-    unsigned char lm = inb(base + 4);
-    unsigned char lh = inb(base + 5);
-    if (sc == 0x01 && ll == 0x01 && lm == 0x14 && lh == 0xEB) return 0; /* ATAPI */
-    if ((sc | ll | lm | lh) == 0x00) return 0;  /* 空槽位 */
-    if ((sc & ll & lm & lh) == 0xFF) return 0;  /* 空槽位 */
-
-    /* 5. ATA 设备: 发送 IDENTIFY DEVICE (0xEC) */
-    outb(base + 6, 0xE0 | (dev << 4));
-    outb(base + 7, 0xEC);
-    timeout = 0;
-    while (++timeout < 1000000) {
-        unsigned char st = inb(base + 7);
-        if (st & 0x08) break;       /* DRQ: 数据就绪 */
-        if (st & 0x01) return 0;    /* ERR: 非 ATA */
-        asm volatile("pause");
-    }
-    if (timeout >= 1000000) return 0;
-
-    /* 6. 读取 512 字节 IDENTIFY 数据 (256 个 16-bit 字) */
-    unsigned char id[512];
-    unsigned short *p = (unsigned short*)id;
-    for (int i = 0; i < 256; i++) p[i] = inw(base + 0);
-
-    /* 7. 提取扇区数: LBA48 (word 100-103) 或 LBA28 (word 60-61) */
-    unsigned short w83 = *(unsigned short*)(id + 83 * 2);
-    unsigned long long sectors = 0;
-    if (w83 & 0x400) {
-        /* LBA48: word 100-101 (低32位), word 102-103 (高32位) */
-        unsigned int lo = *(unsigned int*)(id + 100 * 2);
-        unsigned int hi = *(unsigned int*)(id + 102 * 2);
-        sectors = (unsigned long long)lo | ((unsigned long long)hi << 32);
-    } else {
-        /* LBA28: word 60-61 */
-        sectors = *(unsigned int*)(id + 60 * 2);
-    }
-    return sectors;
-}
-
-/* [IDE ATA 通用读] 从指定总线/设备读取一个扇区 */
-static int ide_ata_read_sector_at(unsigned int base, unsigned int dev,
-                                  unsigned int lba, void *buf) {
-    outb(base + 6, 0xE0 | (dev << 4) | ((lba >> 24) & 0x0F));
-    outb(base + 2, 1);
-    outb(base + 3, lba & 0xFF);
-    outb(base + 4, (lba >> 8) & 0xFF);
-    outb(base + 5, (lba >> 16) & 0xFF);
-    outb(base + 7, 0x20);  /* READ SECTORS */
-    int timeout = 0;
-    while (++timeout < 1000000) { if (!(inb(base + 7) & 0x80)) break; asm volatile("pause"); }
-    timeout = 0;
-    while (++timeout < 1000000) {
-        unsigned char status = inb(base + 7);
-        if (status & 0x08) break;       /* DRQ */
-        if (status & 0x01) return -1;  /* ERR */
-        asm volatile("pause");
-    }
-    if (timeout >= 1000000) return -1;
-    unsigned short *ptr = buf;
-    for (int i = 0; i < 256; i++) ptr[i] = inw(base + 0);
-    return 0;
-}
-
-/* [IDE ATA 通用写] 向指定总线/设备写入一个扇区 */
-static int ide_ata_write_sector_at(unsigned int base, unsigned int dev,
-                                   unsigned int lba, const void *buf) {
-    outb(base + 6, 0xE0 | (dev << 4) | ((lba >> 24) & 0x0F));
-    outb(base + 2, 1);
-    outb(base + 3, lba & 0xFF);
-    outb(base + 4, (lba >> 8) & 0xFF);
-    outb(base + 5, (lba >> 16) & 0xFF);
-    outb(base + 7, 0x30);  /* WRITE SECTORS */
-    int timeout = 0;
-    while (++timeout < 1000000) { if (!(inb(base + 7) & 0x80)) break; asm volatile("pause"); }
-    timeout = 0;
-    while (++timeout < 1000000) {
-        unsigned char status = inb(base + 7);
-        if (status & 0x08) break;       /* DRQ */
-        if (status & 0x01) return -1;  /* ERR */
-        asm volatile("pause");
-    }
-    if (timeout >= 1000000) return -1;
-    const unsigned short *ptr = buf;
-    for (int i = 0; i < 256; i++) {
-        unsigned short v = ptr[i];
-        outw(base + 0, v);
-    }
-    timeout = 0;
-    while (++timeout < 1000000) {
-        unsigned char status = inb(base + 7);
-        if (!(status & 0x80)) break;  /* 等待 BSY 清除 */
-        asm volatile("pause");
-    }
-    return 0;
-}
-
-/* [IDE ATA 全盘扫描] 扫描所有 4 个 IDE 位置, 记录 ATA 硬盘
- * 跳过已知的 IDE ATAPI CD-ROM 位置
- * 扫描后失效 ATAPI 缓存并重新选择引导设备 */
-static void ide_ata_scan_all(void) {
-    static const unsigned int bases[2] = { 0x1F0, 0x170 };
-    for (int bus = 0; bus < 2; bus++) {
-        for (int dev = 0; dev < 2; dev++) {
-            /* 跳过已知的 IDE ATAPI CD-ROM 位置 */
-            if (bases[bus] == (unsigned int)ide_atapi_base && dev == ide_atapi_dev)
-                continue;
-            unsigned long long sectors = ide_detect_ata(bases[bus], dev);
-            if (sectors > 0 && ide_ata_count < 4) {
-                ide_ata_base[ide_ata_count] = bases[bus];
-                ide_ata_dev[ide_ata_count] = dev;
-                ide_ata_sectors[ide_ata_count] = sectors;
-                ide_ata_count++;
-                serial_write("IDE ATA HDD found: bus=");
-                serial_write_hex(bus);
-                serial_write(" dev=");
-                serial_write_hex(dev);
-                serial_write(" sectors=");
-                serial_write_hex(sectors);
-                serial_write("\n");
-            }
-        }
-    }
-    /* 扫描后失效 ATAPI 缓存 (SOFTWARE RESET 可能影响了 CD-ROM 状态) */
-    atapi_cache_cd_lba = 0xFFFFFFFF;
-    /* 重新选择引导设备 (IDE ATAPI) */
-    if (ide_atapi_base != 0) {
-        outb(ide_atapi_base + 6, 0xE0 | (ide_atapi_dev << 4));
-        for (volatile int i = 0; i < 4; i++) (void)inb(ide_atapi_base + 7);
-    }
-}
-
-/* ========== IDE ATAPI (CD-ROM) 支持 ==========
- * CD-ROM 使用 ATAPI 协议 (ATA PACKET 命令 0xA0 + SCSI CDB)
- * IDE 寄存器布局 (base=0x1F0 主/0x170 从):
- *   base+0: 数据寄存器 (16-bit PIO)
- *   base+1: 特征寄存器 (写) / 错误寄存器 (读)
- *   base+2: 扇区计数寄存器
- *   base+3: LBA 低字节
- *   base+4: LBA 中字节 (Cylinder Low)
- *   base+5: LBA 高字节 (Cylinder High)
- *   base+6: 设备/磁头寄存器 (bit4=DEV: 0=master, 1=slave)
- *   base+7: 状态寄存器 (读) / 命令寄存器 (写)
- * ATAPI 签名 (reset 后): SC=0x01, LBA_low=0x01, LBA_mid=0x14, LBA_high=0xEB
- * CD-ROM 扇区 = 2048 字节 (非 512) */
-
-/* 检测 IDE 总线上的 ATAPI 设备
- * base: I/O 基址 (0x1F0=primary, 0x170=secondary)
- * dev: 设备号 (0=master, 1=slave)
- * 返回: 1=ATAPI 设备, 0=非 ATAPI 或无设备
- * [关键] 必须先发 SOFTWARE RESET (SRST) 才能读到正确的 ATAPI 签名,
- *   不做 reset 时签名寄存器可能保留上次的值 (0xFF 或 0x00), 误判为无设备. */
-static int ide_detect_atapi(unsigned int base, unsigned int dev) {
-    /* Device Control Register: base + 0x206
-     *   primary(0x1F0) -> 0x3F6, secondary(0x170) -> 0x376 */
-    unsigned int ctrl = base + 0x206;
-
-    /* 1. 选择设备 */
-    outb(base + 6, 0xE0 | (dev << 4));
-    int timeout = 0;
-    while ((inb(base + 7) & 0x80) && ++timeout < 100000) asm volatile("pause");
-
-    /* 2. 发 SOFTWARE RESET: SRST=bit2, 先置 1 再清 0
-     *    设置 nIEN (bit1=0x02) 避免中断干扰 (内核为轮询模式) */
-    outb(ctrl, 0x04 | 0x02);   /* SRST=1, nIEN=1 */
-    /* 等待至少 5us (读 4 次 control reg 即可) */
-    for (volatile int i = 0; i < 4; i++) (void)inb(ctrl);
-    outb(ctrl, 0x00 | 0x02);   /* SRST=0, nIEN=1 */
-
-    /* 3. 等待 BSY 清除 (ATAPI 设备 reset 后可能需要较长时间) */
-    timeout = 0;
-    while ((inb(base + 7) & 0x80) && ++timeout < 2000000) asm volatile("pause");
-
-    /* 4. 重新选择设备 (reset 后部分控制器恢复为 master) */
-    outb(base + 6, 0xE0 | (dev << 4));
-    for (volatile int i = 0; i < 4; i++) (void)inb(base + 7);
-
-    /* 5. 读取签名字节 */
-    unsigned char sc  = inb(base + 2);   /* 扇区计数 */
-    unsigned char ll  = inb(base + 3);   /* LBA 低字节 */
-    unsigned char lm  = inb(base + 4);   /* LBA 中字节 */
-    unsigned char lh  = inb(base + 5);   /* LBA 高字节 */
-
-    /* ATAPI 签名: SC=0x01, LBA_low=0x01, LBA_mid=0x14, LBA_high=0xEB */
-    if (sc == 0x01 && ll == 0x01 && lm == 0x14 && lh == 0xEB) {
-        return 1;  /* ATAPI 设备 */
-    }
-    /* 无设备: 全 0x00 或全 0xFF */
-    if ((sc | ll | lm | lh) == 0x00) return 0;  /* 空槽位 */
-    if ((sc & ll & lm & lh) == 0xFF) return 0;  /* 空槽位 */
-    /* 非空但非 ATAPI 签名 (可能是 ATA 设备) */
-    return 0;
-}
-
-/* IDE ATAPI 读取一个 2048 字节 CD 扇区
- * 使用 ATA PACKET (0xA0) + SCSI READ(10) CDB (12 字节)
- * PIO 模式传输: 先发 CDB, 再读数据
- * CDB 字节顺序: SCSI 使用大端序, IDE PIO 写 16-bit 字 (低字节先发) */
-static int ide_atapi_read_2048(unsigned int base, unsigned int dev,
-                               unsigned int cd_lba, void *buf) {
-    /* 1. 选择设备 */
-    outb(base + 6, 0xE0 | (dev << 4));
-    int timeout = 0;
-    while ((inb(base + 7) & 0x80) && ++timeout < 1000000) asm volatile("pause");
-    if (timeout >= 1000000) return -1;
-
-    /* 2. 设置特征和字节计数限制 (PIO 模式)
-     *    特征寄存器=0 (无 DMA)
-     *    字节计数 (LBA_mid=byte_count_low, LBA_high=byte_count_high)
-     *    设为 0xFFFE = 65534 允许最大传输 */
-    outb(base + 1, 0);       /* features = 0 (PIO) */
-    outb(base + 4, 0xFE);    /* byte count low */
-    outb(base + 5, 0xFF);    /* byte count high */
-
-    /* 3. 发送 PACKET 命令 */
-    outb(base + 7, 0xA0);    /* ATA PACKET */
-
-    /* 4. 等待 DRQ (设备请求 CDB) */
-    timeout = 0;
-    while (++timeout < 1000000) {
-        unsigned char st = inb(base + 7);
-        if (st & 0x08) break;       /* DRQ: 数据请求 (CDB) */
-        if (st & 0x01) return -1;   /* ERR */
-        asm volatile("pause");
-    }
-    if (timeout >= 1000000) return -1;
-
-    /* 5. 发送 12 字节 CDB (6 个 16-bit 字)
-     *    IDE PIO outw: 低字节先发, 高字节后发
-     *    SCSI CDB 字节顺序 [b0,b1,b2,...,b11]:
-     *      word = b0|(b1<<8) → 发 b0, b1 */
-    unsigned char cdb[12];
-    cdb[0] = 0x28;                            /* READ(10) opcode */
-    cdb[1] = 0;                               /* flags */
-    cdb[2] = (unsigned char)(cd_lba >> 24);   /* LBA MSB (big-endian) */
-    cdb[3] = (unsigned char)(cd_lba >> 16);
-    cdb[4] = (unsigned char)(cd_lba >> 8);
-    cdb[5] = (unsigned char)(cd_lba);         /* LBA LSB */
-    cdb[6] = 0;                               /* group */
-    cdb[7] = 0;                               /* transfer length MSB (1 block) */
-    cdb[8] = 1;                               /* transfer length LSB */
-    cdb[9] = 0;                               /* control */
-    cdb[10] = 0;
-    cdb[11] = 0;
-
-    for (int i = 0; i < 6; i++) {
-        unsigned short w = (unsigned short)cdb[i * 2]
-                         | ((unsigned short)cdb[i * 2 + 1] << 8);
-        outw(base + 0, w);
-    }
-
-    /* 6. 等待数据 DRQ */
-    timeout = 0;
-    while (++timeout < 1000000) {
-        unsigned char st = inb(base + 7);
-        if (st & 0x08) break;       /* DRQ: 数据就绪 */
-        if (st & 0x01) return -1;   /* ERR */
-        asm volatile("pause");
-    }
-    if (timeout >= 1000000) return -1;
-
-    /* 7. 读取 2048 字节数据 (1024 个 16-bit 字) */
-    unsigned short *ptr = buf;
-    for (int i = 0; i < 1024; i++) {
-        ptr[i] = inw(base + 0);
-    }
-
-    /* 8. 等待 BSY 清除 */
-    timeout = 0;
-    while ((inb(base + 7) & 0x80) && ++timeout < 1000000) asm volatile("pause");
-
-    return 0;
-}
-
-/* IDE ATAPI 初始化: 扫描主/从总线, 查找 ATAPI (CD-ROM) 设备
- * 扫描顺序: primary master → primary slave → secondary master → secondary slave
- * 找到后设置 ide_atapi_base 和 ide_atapi_dev
- * 返回: 0=成功, -1=未找到 ATAPI 设备 */
-static int ide_atapi_init_driver(void) {
-    /* IDE 总线 I/O 基址 */
-    static const unsigned int bases[2] = { 0x1F0, 0x170 };
-    for (int bus = 0; bus < 2; bus++) {
-        for (int dev = 0; dev < 2; dev++) {
-            if (ide_detect_atapi(bases[bus], dev)) {
-                ide_atapi_base = bases[bus];
-                ide_atapi_dev = dev;
-                serial_write("ATAPI CD-ROM found: bus=");
-                serial_write_hex(bus);
-                serial_write(" dev=");
-                serial_write_hex(dev);
-                serial_write(" base=");
-                serial_write_hex(ide_atapi_base);
-                serial_write("\n");
-                return 0;
-            }
-        }
-    }
-    return -1;
-}
-
-/* IDE ATAPI 512 字节 LBA 读取 (带 2048 字节扇区缓存)
- * 翻译: cd_lba = lba512/4, offset = (lba512%4)*512 */
-static int ide_atapi_read_sector_512(unsigned int lba512, void *buf) {
-    unsigned int cd_lba = lba512 / 4;
-    unsigned int off = (lba512 % 4) * 512;
-    if (cd_lba != atapi_cache_cd_lba) {
-        if (ide_atapi_read_2048(ide_atapi_base, ide_atapi_dev, cd_lba, atapi_cache) != 0)
-            return -1;
-        atapi_cache_cd_lba = cd_lba;
-    }
-    my_memcpy(buf, atapi_cache + off, 512);
     return 0;
 }
 
@@ -2925,7 +2285,6 @@ static int disk_read_sector(unsigned int lba, void *buf) {
     }
     if (disk_type == 2) return ahci_read_sector(lba, buf);
     else if (disk_type == 1) return ide_read_sector(lba, buf);
-    else if (disk_type == 3) return ide_atapi_read_sector_512(lba, buf);
     return -1;
 }
 static int disk_write_sector(unsigned int lba, const void *buf) {
@@ -2935,7 +2294,6 @@ static int disk_write_sector(unsigned int lba, const void *buf) {
     }
     if (disk_type == 2) return ahci_write_sector(lba, buf);
     else if (disk_type == 1) return ide_write_sector(lba, buf);
-    /* disk_type==3 (ATAPI/CD-ROM) 只读, 拒绝写 */
     return -1;
 }
 
@@ -2956,7 +2314,7 @@ static int disk_read_n(unsigned int lba, unsigned char *buf, int n) {
         return 0;
     }
     if (disk_type == 2) {
-        /* AHCI: 支持多扇区, 最多 256 扇区/次 (内部自动处理 ATAPI 翻译) */
+        /* AHCI: 支持多扇区, 最多 256 扇区/次 */
         while (n > 0) {
             int chunk = n > 256 ? 256 : n;
             if (ahci_read_blocks(lba, chunk, buf) != 0) return -1;
@@ -2965,9 +2323,6 @@ static int disk_read_n(unsigned int lba, unsigned char *buf, int n) {
             n -= chunk;
         }
     } else if (disk_type == 1) {
-        for (int i = 0; i < n; i++) if (disk_read_sector(lba + i, buf + i * 512) != 0) return -1;
-    } else if (disk_type == 3) {
-        /* IDE ATAPI: 逐扇区读取 (内部有 2048 字节扇区缓存优化) */
         for (int i = 0; i < n; i++) if (disk_read_sector(lba + i, buf + i * 512) != 0) return -1;
     } else return -1;
     return 0;
@@ -2997,9 +2352,7 @@ static int disk_write_n(unsigned int lba, const unsigned char *buf, int n) {
         }
     } else if (disk_type == 1) {
         for (int i = 0; i < n; i++) if (disk_write_sector(lba + i, buf + i * 512) != 0) return -1;
-    }
-    /* disk_type==3 (ATAPI/CD-ROM) 只读, 拒绝写 */
-    else return -1;
+    } else return -1;
     return 0;
 }
 
@@ -4796,19 +4149,6 @@ struct kernel_api {
      *   "sysinfo" out=struct efm_sysinfo (二进制, 见实现处定义)
      * 返回 0=成功 (文本 op 返回字节数), 负值=失败, -2=未知 op. */
     int  (*fsop)(const char *op, const char *a, const char *b, char *out, int outsz);
-    /* ========== 安装器 API (raw disk read/write, 多磁盘支持) ==========
-     * disk_count: 返回可用 AHCI 磁盘数 (含引导盘)
-     * disk_total_sectors(idx): 返回磁盘 idx 的总扇区数 (LBA48)
-     * disk_read_raw(idx, lba, buf, count): 原始扇区读 (512B/sector)
-     * disk_write_raw(idx, lba, buf, count): 原始扇区写 (512B/sector)
-     * idx=0 通常是引导盘 (安装源), idx>=1 是目标磁盘.
-     * 写操作后会自动 flush cache 并恢复引导盘配置. */
-    int  (*disk_count)(void);
-    unsigned long long (*disk_total_sectors)(int idx);
-    int  (*disk_read_raw)(int idx, unsigned long lba, void *buf, int count);
-    int  (*disk_write_raw)(int idx, unsigned long lba, const void *buf, int count);
-    /* [安装器] 按偏移读取文件片段 (流式读取大文件, 如 disk.img) */
-    int  (*file_read_range)(const char *path, char *buf, int offset, int len);
 };
 
 /* ---------- Mesa 合成器共享窗口状态结构 ---------- */
@@ -4990,13 +4330,6 @@ static int efs_file_read(const char *path, char *buf, int max) {
     unsigned int ino = resolve_inode(path, NULL);
     if (!ino) return -1;
     return read_file_content(ino, (unsigned char*)buf, (unsigned int)max);
-}
-/* [安装器 API] 按偏移读取文件片段 (供 installer.efs 流式读取大文件如 disk.img)
- * 返回实际读取字节数, 0=EOF, -1=错误 */
-static int efs_file_read_range(const char *path, char *buf, int offset, int len) {
-    unsigned int ino = resolve_inode(path, NULL);
-    if (!ino || len <= 0) return -1;
-    return (int)read_file_range(ino, (unsigned char*)buf, (unsigned int)offset, (unsigned int)len);
 }
 /* 拆分绝对路径为 "父目录" + "末级名", 返回父目录 inode (0=失败) */
 static unsigned int efs_resolve_parent(const char *path, char *child, int child_sz) {
@@ -8876,12 +8209,6 @@ static void efs_setup_api_table(void) {
     api->readline_ext = efs_readline_ext;
     api->read_text    = efs_read_text;
     api->fsop         = efs_fsop;
-    /* [安装器 API] 原始磁盘读写 (多磁盘) */
-    api->disk_count        = efs_disk_count_api;
-    api->disk_total_sectors = efs_disk_total_sectors_api;
-    api->disk_read_raw     = efs_disk_read_raw_api;
-    api->disk_write_raw    = efs_disk_write_raw_api;
-    api->file_read_range   = efs_file_read_range;
 }
 
 /* [2026+] spawn_async 的包装: 写 args 到全局 efs_argbuf, 然后调用 efs_spawn_async(name)
@@ -11618,152 +10945,18 @@ void kmain(void) {
     serial_write("PS2 init OK (kbd+mouse streaming)\n");
     mouse_set_cursor(1);   /* 显示系统级箭头光标 */
 
-    /* [ATAPI/CD-ROM 支持] 磁盘初始化: 探测所有可用设备, 找到含 ext4 分区的设备
-     * 引导加载器将 ext4 分区的绝对 LBA (512 字节单位) 存入 0x1500
-     * 内核需遍历 AHCI 各端口 + IDE 主从总线, 读取 ext4 超级块 (LBA+2)
-     * 验证 0xEF53 魔数来确定哪个物理设备包含引导分区
-     * 支持: AHCI ATA(HDD) / AHCI ATAPI(CD-ROM) / IDE ATA(HDD) / IDE ATAPI(CD-ROM) */
-    {
-        unsigned long long boot_ext4_lba = *(unsigned long long*)0x1500;
-        int disk_ok = 0;
-
-        /* 1. 尝试 AHCI (遍历所有端口, 含 ATA 和 ATAPI) */
-        if (ahci_init_driver() == 0) {
-            serial_write("AHCI controller found, probing ports for ext4...\n");
-            for (int i = 0; i < ahci_port_count && !disk_ok; i++) {
-                int port = ahci_port_list[i];
-                int saved = ahci_port;
-                if (ahci_setup_port(port) == 0) {
-                    ahci_port = port;
-                    disk_type = 2;  /* disk_read_n → ahci_read_blocks (内部处理 ATAPI) */
-                    atapi_cache_cd_lba = 0xFFFFFFFF; /* 端口切换, 清除缓存 */
-                    unsigned char sb_test[1024];
-                    if (disk_read_n((unsigned int)(boot_ext4_lba + 2), sb_test, 2) == 0) {
-                        if (*(unsigned short*)(sb_test + 0x38) == 0xEF53) {
-                            disk_ok = 1;
-                            serial_write("ext4 found on AHCI port ");
-                            serial_write_hex(port);
-                            serial_write(ahci_port_is_atapi[port] ?
-                                " (ATAPI/CD-ROM)\n" : " (ATA/HDD)\n");
-                        }
-                    }
-                }
-                if (!disk_ok) {
-                    ahci_port = saved;
-                    ahci_setup_port(saved);
-                }
-            }
-        }
-
-        /* 2. 尝试 IDE 主盘 ATA (传统硬盘) */
-        if (!disk_ok) {
-            serial_write("AHCI ext4 probe failed, trying IDE ATA...\n");
-            if (ide_init_driver() == 0) {
-                disk_type = 1;
-                unsigned char sb_test[1024];
-                if (disk_read_n((unsigned int)(boot_ext4_lba + 2), sb_test, 2) == 0) {
-                    if (*(unsigned short*)(sb_test + 0x38) == 0xEF53) {
-                        disk_ok = 1;
-                        serial_write("ext4 found on IDE (ATA/HDD)\n");
-                    }
-                }
-            }
-        }
-
-        /* 3. 尝试 IDE ATAPI (CD-ROM, 扫描主/从总线) */
-        if (!disk_ok) {
-            serial_write("Trying IDE ATAPI (CD-ROM)...\n");
-            if (ide_atapi_init_driver() == 0) {
-                disk_type = 3;
-                atapi_cache_cd_lba = 0xFFFFFFFF;
-                unsigned char sb_test[1024];
-                if (disk_read_n((unsigned int)(boot_ext4_lba + 2), sb_test, 2) == 0) {
-                    if (*(unsigned short*)(sb_test + 0x38) == 0xEF53) {
-                        disk_ok = 1;
-                        serial_write("ext4 found on IDE ATAPI (CD-ROM)\n");
-                    }
-                }
-            }
-        }
-
-        if (!disk_ok) {
-            serial_write("Disk init failed (no ext4 found), halt.\n");
+    if (ahci_init_driver() == 0) {
+        disk_type = 2;
+        serial_write("Using AHCI disk.\n");
+    } else {
+        serial_write("AHCI failed, trying IDE...\n");
+        if (ide_init_driver() == 0) {
+            disk_type = 1;
+            serial_write("Using IDE disk.\n");
+        } else {
+            serial_write("Disk init failed, halt.\n");
             while(1) asm volatile("hlt");
         }
-    }
-
-    /* [统一磁盘列表] 扫描 IDE ATA 硬盘 + 构建 installer.efs 使用的统一磁盘索引
-     * idx 0 = 引导设备, idx >= 1 = 其他可用磁盘
-     * 排序: 引导设备 → 其他 AHCI 端口 → 其他 IDE ATA 硬盘 */
-    ide_ata_scan_all();
-    g_disk_count = 0;
-
-    /* 1. 添加引导设备 (idx=0) */
-    if (disk_type == 2) {
-        /* AHCI 引导: 引导端口 = 当前 ahci_port */
-        int boot_ahci_idx = 0;
-        for (int i = 0; i < ahci_port_count; i++) {
-            if (ahci_port_list[i] == ahci_port) { boot_ahci_idx = i; break; }
-        }
-        g_disk_list[0].type = (ahci_port >= 0 && ahci_port < 32 &&
-                               ahci_port_is_atapi[ahci_port]) ? 4 : 2;
-        g_disk_list[0].port = ahci_port;
-        g_disk_list[0].base = 0;
-        g_disk_list[0].dev = 0;
-        g_disk_list[0].sectors = ahci_disk_sectors[boot_ahci_idx];
-        g_disk_count = 1;
-        /* 添加其他 AHCI 端口 */
-        for (int i = 0; i < ahci_port_count && g_disk_count < 32; i++) {
-            if (i == boot_ahci_idx) continue;
-            g_disk_list[g_disk_count].type = ahci_port_is_atapi[ahci_port_list[i]] ? 4 : 2;
-            g_disk_list[g_disk_count].port = ahci_port_list[i];
-            g_disk_list[g_disk_count].base = 0;
-            g_disk_list[g_disk_count].dev = 0;
-            g_disk_list[g_disk_count].sectors = ahci_disk_sectors[i];
-            g_disk_count++;
-        }
-    } else if (disk_type == 1) {
-        /* IDE ATA 引导: primary master (0x1F0, dev=0) */
-        g_disk_list[0].type = 1;
-        g_disk_list[0].port = 0;
-        g_disk_list[0].base = 0x1F0;
-        g_disk_list[0].dev = 0;
-        g_disk_list[0].sectors = 0;  /* 按需获取 */
-        g_disk_count = 1;
-    } else if (disk_type == 3) {
-        /* IDE ATAPI (CD-ROM) 引导 */
-        g_disk_list[0].type = 3;
-        g_disk_list[0].port = 0;
-        g_disk_list[0].base = ide_atapi_base;
-        g_disk_list[0].dev = ide_atapi_dev;
-        g_disk_list[0].sectors = 0;  /* CD-ROM 只读 */
-        g_disk_count = 1;
-    }
-
-    /* 2. 添加非引导 IDE ATA 硬盘 */
-    for (int i = 0; i < ide_ata_count && g_disk_count < 32; i++) {
-        /* 跳过引导设备 (IDE ATA 引导: primary master) */
-        if (disk_type == 1 && ide_ata_base[i] == 0x1F0 && ide_ata_dev[i] == 0)
-            continue;
-        g_disk_list[g_disk_count].type = 1;
-        g_disk_list[g_disk_count].port = 0;
-        g_disk_list[g_disk_count].base = ide_ata_base[i];
-        g_disk_list[g_disk_count].dev = ide_ata_dev[i];
-        g_disk_list[g_disk_count].sectors = ide_ata_sectors[i];
-        g_disk_count++;
-    }
-
-    serial_write("Disk list: ");
-    serial_write_hex(g_disk_count);
-    serial_write(" disk(s) registered for installer\n");
-    for (int i = 0; i < g_disk_count; i++) {
-        serial_write("  [");
-        serial_write_hex(i);
-        serial_write("] type=");
-        serial_write_hex(g_disk_list[i].type);
-        serial_write(" sectors=");
-        serial_write_hex(g_disk_list[i].sectors);
-        serial_write("\n");
     }
 
     ext4_init();
@@ -11904,29 +11097,6 @@ void kmain(void) {
     fill_screen(bg);
     cursor_x = 0; cursor_y = 0;
     print_efmos_banner();
-
-    /* [安装模式检测] 检查 /EFMOS/installer.efs 是否存在 (仅安装 ISO 包含此文件).
-     * 如果存在, 运行 installer.efs 进入安装流程 (选择目标磁盘, 写入 disk.img),
-     * 而非正常的登录流程. 安装完成后系统 halt 等待用户重启. */
-    {
-        unsigned int efm_ino = find_in_dir(2, "EFMOS");
-        if (efm_ino) {
-            unsigned int inst_ino = find_in_dir(efm_ino, "installer.efs");
-            if (inst_ino) {
-                serial_write("boot: installer.efs detected, entering install mode\n");
-                print_string(TR("Starting system installer...\n",
-                                "正在启动系统安装程序...\n"));
-                (void)run_efs("installer");
-                /* installer.efs 返回 = 安装完成, 提示重启 */
-                fill_screen(bg);
-                cursor_x = 0; cursor_y = 0;
-                print_string(TR("\nInstallation complete!\nPlease remove the installation media and reboot.\n",
-                                "\n安装完成！\n请移除安装介质并重新启动。\n"));
-                serial_write("boot: installer returned, halt.\n");
-                while(1) asm volatile("hlt");
-            }
-        }
-    }
 
     /* [用户登录门禁] 以 /users/users.conf 内容为准:
      *   - users.conf 不存在或为空 (无账户) → 运行 userman (创建账户)

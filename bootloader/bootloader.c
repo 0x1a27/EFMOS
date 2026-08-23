@@ -83,31 +83,6 @@ static UINT32 s_hr, s_vr;
 
 /* ---------- UEFI 辅助函数 (需在 boot_progress 之前定义, 消除隐式声明) ---------- */
 void print(CHAR16 *s) { if (ST && ST->ConOut) ST->ConOut->OutputString(ST->ConOut, s); }
-
-/* [调试] COM1 直接串口输出 - 绕过 ST->ConOut, 任何 UEFI 状态下都能工作.
- * 用于定位 PT_LOAD[2] 后到 boot_progress(88) 之间的卡死位置. */
-static inline void ser_putc(unsigned char c) {
-    unsigned short port = 0x3F8;
-    unsigned char lsr;
-    int timeout = 1000000;
-    do { __asm__ volatile("inb %1, %0" : "=a"(lsr) : "d"((unsigned short)(port + 5))); } while (!(lsr & 0x20) && --timeout);
-    __asm__ volatile("outb %0, %1" : : "a"(c), "d"(port));
-}
-static void ser_puts(const char *s) { while (*s) ser_putc((unsigned char)*s++); }
-static void ser_put_hex(unsigned long long v) {
-    static const char hex[] = "0123456789ABCDEF";
-    ser_puts("0x");
-    for (int i = 60; i >= 0; i -= 4) {
-        unsigned char d = (unsigned char)((v >> i) & 0xF);
-        ser_putc((unsigned char)hex[d]);
-    }
-}
-static void ser_put_dec(unsigned long long v) {
-    char tmp[24]; int n = 0;
-    if (!v) { ser_putc('0'); return; }
-    while (v) { tmp[n++] = '0' + (char)(v % 10); v /= 10; }
-    while (n) ser_putc((unsigned char)tmp[--n]);
-}
 void print_hex(UINT64 v) { CHAR16 h[]=L"0123456789ABCDEF", b[19]=L"0x0000000000000000"; for(int i=17;i>=2;i--){b[i]=h[v&0xF];v>>=4;} print(b); }
 int my_memcmp(const void *a, const void *b, UINTN n) { const UINT8 *p1=a,*p2=b; while(n--){if(*p1!=*p2)return *p1-*p2;p1++;p2++;} return 0; }
 void *my_memcpy(void *d, const void *s, UINTN n) { UINT8 *dd=d,*ss=(UINT8*)s; while(n--)*dd++=*ss++; return d; }
@@ -362,36 +337,7 @@ static void boot_spinner(UINT32 total_ms) {
 static EFI_BLOCK_IO *bio; static UINT64 part_start;
 static UINT32 block_size, inodes_per_group, inode_size; static VOID *gdt;
 
-/* [修复 · CD 2048 字节扇区支持]
- * UEFI BlockIO 要求: BufferSize 必须是 Media->BlockSize 的倍数,
- * LBA 以 BlockSize 为单位 (不是 512 字节).
- * CD-ROM 用 2048 字节扇区, 而代码用 512 字节 LBA.
- * 此函数接受字节偏移和字节数, 自动处理块对齐和部分块读取.
- * 所有 ReadBlocks 调用必须经过此函数 (或确保对齐). */
-static UINT8 *bio_scratch = NULL;  /* 复用的单块临时缓冲 */
-
-static EFI_STATUS bio_read_bytes(EFI_BLOCK_IO *b, UINT64 byte_off, UINTN bytes, VOID *buf) {
-    UINTN bs = b->Media->BlockSize;
-    if (bs == 0) bs = 512;
-    if (!bio_scratch) BS->AllocatePool(EfiLoaderData, 4096, (VOID**)&bio_scratch);
-    UINT64 dev_lba = byte_off / bs;
-    UINTN blk_off = (UINTN)(byte_off % bs);
-    UINT8 *out = (UINT8*)buf;
-    UINTN remaining = bytes;
-    while (remaining > 0) {
-        EFI_STATUS s = b->ReadBlocks(b, b->Media->MediaId, dev_lba, bs, bio_scratch);
-        if (EFI_ERROR(s)) return s;
-        UINTN copy = bs - blk_off;
-        if (copy > remaining) copy = remaining;
-        my_memcpy(out, bio_scratch + blk_off, copy);
-        out += copy; remaining -= copy; dev_lba++; blk_off = 0;
-    }
-    return EFI_SUCCESS;
-}
-
-EFI_STATUS read_sectors(UINT64 lba512, UINTN bytes, VOID *buf) {
-    return bio_read_bytes(bio, lba512 * 512, bytes, buf);
-}
+EFI_STATUS read_sectors(UINT64 lba, UINTN bytes, VOID *buf) { return bio->ReadBlocks(bio, bio->Media->MediaId, lba, bytes, buf); }
 EFI_STATUS read_block(UINT32 blk, VOID *buf) { return read_sectors(part_start + (UINT64)blk * block_size / 512, block_size, buf); }
 
 EFI_STATUS ext4_init(EFI_BLOCK_IO *b, UINT64 pstart) {
@@ -565,15 +511,11 @@ EFI_STATUS load_elf(UINT8 *data, UINT64 *entry, UINT64 *stack) {
 
         print(L"ELF PT_LOAD["); print_hex(i); print(L"] paddr=0x");
         print_hex(ph[i].paddr); print(L" memsz=0x"); print_hex(memsz); print(L"\r\n");
-        ser_puts("[PHdr"); ser_putc((unsigned char)('0' + i)); ser_puts("] pages="); ser_put_dec(pages);
-        ser_puts(" paddr="); ser_put_hex(ph[i].paddr); ser_puts("\n");
 
         if(ph[i].paddr == 0) {
             st = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &addr);
         } else {
-            ser_puts("[load] AllocateAddress calling...\n");
             st = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &addr);
-            ser_puts("[load] AllocateAddress rc="); ser_put_hex(st); ser_puts("\n");
             if(EFI_ERROR(st)) {
                 print(L"ELF: cannot load at link addr 0x");
                 print_hex(ph[i].paddr);
@@ -581,35 +523,25 @@ EFI_STATUS load_elf(UINT8 *data, UINT64 *entry, UINT64 *stack) {
                 return st;
             }
         }
-        ser_puts("[load] SetMem addr="); ser_put_hex(addr); ser_puts(" sz="); ser_put_dec(memsz); ser_puts("\n");
         BS->SetMem((VOID*)addr, memsz, 0);
-        ser_puts("[load] memcpy\n");
         my_memcpy((VOID*)addr, data+ph[i].offset, filesz);
-        ser_puts("[load] seg "); ser_putc((unsigned char)('0' + i)); ser_puts(" done\n");
     }
-    ser_puts("[load_elf] all segs loaded, allocating stack...\n");
     *entry = eh->entry; EFI_PHYSICAL_ADDRESS stk;
     EFI_STATUS st = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, 2, &stk); if(EFI_ERROR(st)) return st;
-    *stack = stk + 0x2000;
-    ser_puts("[load_elf] done, entry="); ser_put_hex(*entry); ser_puts(" stack="); ser_put_hex(*stack); ser_puts("\n");
-    return EFI_SUCCESS;
+    *stack = stk + 0x2000; return EFI_SUCCESS;
 }
 
 /* 搜索 GPT 表中 type == linuxGuid 的分区, 返回其起始 LBA; 未找到返回 0 */
 static UINT64 scan_gpt_for_ext4(EFI_BLOCK_IO *b, UINT64 *start_out) {
-    /* [修复 · CD 2048 扇区] GPT 头在字节偏移 512 (512 字节 LBA=1).
-     * 对 2048 字节设备, 这在第一个设备块内偏移 512. 用 bio_read_bytes
-     * 通用读取, 自动处理任意块大小. */
     UINT8 gpt[512];
-    EFI_STATUS s = bio_read_bytes(b, 512, 512, gpt);
+    EFI_STATUS s = b->ReadBlocks(b, b->Media->MediaId, 1, 512, gpt);
     if(EFI_ERROR(s) || my_memcmp(gpt, "EFI PART", 8)) return 0;
     UINT32 esz = *(UINT32*)(gpt+0x54); UINT64 elba = *(UINT64*)(gpt+0x48);
     if(esz == 0 || esz > 1024) return 0;
     UINTN tableBytes = 128 * esz;
     UINT8 *ents; s = BS->AllocatePool(EfiLoaderData, tableBytes, (VOID**)&ents);
     if(EFI_ERROR(s)) return 0;
-    /* elba 是 512 字节 LBA, 转换为字节偏移给 bio_read_bytes */
-    s = bio_read_bytes(b, elba * 512, tableBytes, ents);
+    s = b->ReadBlocks(b, b->Media->MediaId, elba, tableBytes, ents);
     if(EFI_ERROR(s)) { BS->FreePool(ents); return 0; }
     EFI_GUID linuxGuid = {0x0FC63DAF,0x8483,0x4772,{0x8E,0x79,0x3D,0x69,0xD8,0x47,0x7D,0xE4}};
     UINT64 start = 0;
@@ -662,11 +594,8 @@ static int try_blockio_for_ext4(EFI_BLOCK_IO *b, EFI_HANDLE h,
                                  UINT64 *part_start_out, UINT64 *abs_lba_out) {
     if(!b || !b->Media) return 0;
     if(b->Media->LogicalPartition) {
-        /* [修复 · CD 2048 扇区] ext4 超级块在分区字节偏移 1024.
-         * 对 2048 字节设备, ReadBlocks(b, ..., 2, 1024, sb) 会失败
-         * (1024 不是 2048 的倍数). 用 bio_read_bytes 通用读取. */
         UINT8 sb[1024];
-        if(EFI_ERROR(bio_read_bytes(b, 1024, 1024, sb))) return 0;
+        if(EFI_ERROR(b->ReadBlocks(b, b->Media->MediaId, 2, 1024, sb))) return 0;
         if(*(UINT16*)(sb + 0x38) != 0xEF53) return 0;
         /* ext4 分区: ext4_init 用分区相对 LBA (part_start=0);
          * 内核需要整盘绝对 LBA, 从 DevicePath 取 */
@@ -757,24 +686,17 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
     UINT8 *kern_buf; BS->AllocatePool(EfiLoaderData, fsize, (VOID**)&kern_buf);
     read_inode_data(kern_inode, kern_buf);
     boot_progress(75, L"Linking ELF segments");
-    ser_puts("[step5] entering load_elf\n");
     UINT64 entry, stack; status = load_elf(kern_buf, &entry, &stack);
-    ser_puts("[step5] load_elf rc="); ser_put_hex(status); ser_puts("\n");
-    ser_puts("[step5] FreePool kern_buf\n");
     BS->FreePool(kern_buf);
-    ser_puts("[step5] FreePool done\n");
     if(EFI_ERROR(status)) {
         boot_progress(100, L"ERROR: ELF load failed");
         print(L"ELF fail\r\n"); return status;
     }
 
     /* ---------- Step 6: 传递参数给内核 + 设置 FB 信息 ---------- */
-    ser_puts("[step6] before boot_progress(88)\n");
     boot_progress(88, L"Preparing kernel handoff");
-    ser_puts("[step6] after boot_progress(88)\n");
     *(UINT64*)0x1500 = ext4_abs_lba;
     *(UINT32*)0x1508 = block_size;
-    ser_puts("[step6] handoff params set\n");
 
     struct { UINT64 fb; UINT32 hr, vr, ppsl; } *gop = (void*)0x1000;
     if (s_gop && s_gop->Mode) {
@@ -782,7 +704,6 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
         gop->hr   = s_gop->Mode->Info->HorizontalResolution;
         gop->vr   = s_gop->Mode->Info->VerticalResolution;
         gop->ppsl = s_gop->Mode->Info->PixelsPerScanLine;
-        ser_puts("[step6] gop via s_gop fb="); ser_put_hex(gop->fb); ser_puts("\n");
     } else {
         EFI_GRAPHICS_OUTPUT_PROTOCOL *GOP = NULL;
         status = BS->LocateProtocol(&gEfiGraphicsOutputProtocolGuid, NULL, (VOID**)&GOP);
