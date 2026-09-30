@@ -1,3 +1,24 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * EFMOS - a 64-bit x86_64 UEFI operating system written in C.
+ *
+ * Copyright (C) 2026 0x1a27
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* efmlogin.c - EFMOS 登录程序 (编译为 efmlogin.efs)
  * 加载地址: 0x600000 (6MB, 不与其他程序冲突)
  * 入口: _start (二进制首字节, 必须为 .text 第一个函数)

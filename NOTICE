@@ -1,0 +1,53 @@
+EFMOS — 第三方组件与许可证
+==========================
+
+EFMOS 自身代码（内核、引导加载器、驱动、EFS 程序、Mesa 兼容层、
+内置编译器、构建脚本等）以 GNU GPLv3 发布，完整许可证文本见根目录
+LICENSE 文件；各源码文件的许可证声明见文件头的
+SPDX-License-Identifier 注释。
+
+本项目包含或引用以下第三方组件，各自按其原有许可证使用：
+
+1. Mesa 3D 24.2.5
+   位置:   mesa-src/（未纳入版本库，体积过大，构建前单独检出）
+   许可证: 核心库 (src/mesa/) MIT；Gallium (src/gallium/) MIT；
+           GLX 客户端 (src/glx/) SGI Free Software License B；
+           扩展头 (glext.h/glxext.h) Khronos；C11 线程模拟
+           Boost 宽松许可证。逐组件详见 mesa-src/docs/license.rst。
+   来源:   https://gitlab.freedesktop.org/mesa/mesa (tag 24.2.5)
+   用途:   构建 EFMOS 图形栈（Gallium swrast 软件光栅化 + EGL/GBM），
+           产物安装至磁盘映像的 /EFMOS/SYSTEM/LIB/mesa。
+
+2. Sarasa Gothic 字体
+   位置:   fonts/sarasa-gothic-regular.ttf
+   许可证: SIL Open Font License 1.1（OFL-1.1，全文见 fonts/OFL.txt）
+   来源:   https://github.com/be5invis/Sarasa-Gothic
+           （基于 Iosevka 与思源黑体的 CJK 等宽字体）
+   用途:   UI 与 TTF 字体渲染。gen_cjk_font.py 由其生成的 16x16
+           点阵数据（kernel/cjk_font_data.h、kernel/cjk_font_preset.h）
+           属于字体衍生数据，同样适用 OFL-1.1。
+
+3. OVMF (edk2)
+   位置:   OVMF*.fd（UEFI 固件二进制，未纳入版本库）
+   许可证: GNU GPL v2+（部分组件含其他许可，见 edk2 仓库说明）
+   来源:   https://github.com/tianocore/edk2
+   用途:   QEMU 中 UEFI 引导测试，需从 edk2 项目单独构建/下载，
+           请勿将本仓库的二进制当作 edk2 官方发布物使用。
+
+4. Khronos EGL 接口定义
+   位置:   lib/include/EGL/
+   说明:   EFMOS 编写的最小 EGL 兼容实现；EGL 接口规范由
+           Khronos Group 维护（https://www.khronos.org/egl/）。
+
+5. Linux 内核 DRM uapi / libdrm 接口
+   位置:   lib/include/drm/、lib/include/xf86drm.h、lib/include/gbm.h、
+           lib/include/linux/types.h、lib/include/asm/ioctl.h
+   说明:   为兼容 Mesa 而编写的 EFMOS 适配声明，接口结构对应
+           Linux 内核 DRM uapi 头文件（GPL-2.0-or-later / BSD-2-Clause）
+           与 libdrm/libgbm（MIT）。
+
+分发注意:
+- 以二进制形式（disk.img / efmos-install.iso 等）分发 EFMOS 时，须按
+  GPLv3 要求随附对应完整源码或提供至少三年的书面要约。
+- 上述第三方组件须按其各自许可证保留版权声明，并随附相应许可证
+  文本与源码获取途径。

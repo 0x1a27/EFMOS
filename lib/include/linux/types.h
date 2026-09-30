@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Mirrors the Linux kernel uapi type aliases (GPL-2.0-or-later / BSD-2-Clause).
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 #ifndef _EFMLIBC_LINUX_TYPES_H
 #define _EFMLIBC_LINUX_TYPES_H
 /* linux/types.h 兼容: Mesa drm-uapi/drm.h 需要 __u32/__u16/__u64 等 */

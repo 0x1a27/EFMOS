@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Mirrors the Linux kernel DRM uapi headers (GPL-2.0-or-later / BSD-2-Clause).
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* drm/drm_fourcc.h — Mesa 到处引用 DRM_FORMAT_* 四字符编码 */
 #ifndef DRM_FOURCC_H
 #define DRM_FOURCC_H

@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Mirrors the libdrm (MIT license) public API.
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* xf86drm.h — Mesa 引用的 DRM 上层 API 头 (libdrm 兼容层)
  *
  * 包含:

@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Mirrors the Linux kernel DRM uapi headers (GPL-2.0-or-later / BSD-2-Clause).
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* drm/drm_mode.h — EFMOS 内核 uapi DRM mode 结构体 (供 efmlib 独立构建使用)
  *
  * 此文件 ONLY 包含内核 uapi 结构体和宏 (与 Linux drm-uapi/drm_mode.h 对应).

@@ -1,3 +1,10 @@
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# EFMOS compatibility header, part of the EFMOS libc layer
+# (GPLv3; full license text in LICENSE).
+# Copyright (C) 2026 0x1a27
+
 # EFMOS libdrm compatibility layer (KMS / dumb BO / GEM close)
 # Provides: drmOpen, drmModeGetResources, drmModeAddFB, drmModeSetCrtc,
 #           drmIoctl (VERSION/GET_CAP/CREATE_DUMB/MAP_DUMB/DESTROY_DUMB/GEM_CLOSE)

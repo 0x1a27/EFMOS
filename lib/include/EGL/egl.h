@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Implements the Khronos EGL API (specification is the property of the Khronos Group).
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* EGL/egl.h — Khronos EGL 最小子集 (Mesa + 应用层引用) */
 #ifndef _EGL_EGL_H_
 #define _EGL_EGL_H_

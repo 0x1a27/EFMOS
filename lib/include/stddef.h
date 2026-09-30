@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* stddef.h — 基本类型定义 (替代 GCC 内置 stddef.h)
  *
  * 关键: GCC 内置 stddef.h 支持 __need_size_t 等"部分包含"模式.

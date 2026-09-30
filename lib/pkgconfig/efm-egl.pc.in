@@ -1,3 +1,10 @@
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# EFMOS compatibility header, part of the EFMOS libc layer
+# (GPLv3; full license text in LICENSE).
+# Copyright (C) 2026 0x1a27
+
 # EFMOS EGL 1.5 native platform (no X11/Wayland)
 # Provides: eglGetDisplay, eglInitialize, eglCreateContext, eglCreateWindowSurface
 prefix=@PREFIX@

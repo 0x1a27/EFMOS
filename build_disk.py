@@ -1,4 +1,24 @@
 #!/usr/bin/env python3
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# EFMOS - a 64-bit x86_64 UEFI operating system written in C.
+#
+# Copyright (C) 2026 0x1a27
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """build_disk.py - 构建 EFMOS 磁盘映像 (无需 parted/mtools)
 用 Python 创建 GPT + FAT16 ESP, 用 mkfs.ext4 + debugfs 创建 ext4 分区."""
 import struct, os, subprocess, sys, tempfile

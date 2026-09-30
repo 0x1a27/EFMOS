@@ -1,3 +1,24 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * EFMOS - a 64-bit x86_64 UEFI operating system written in C.
+ *
+ * Copyright (C) 2026 0x1a27
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include <efi.h>
 #include <efilib.h>
 #include "bootlogo.h"
@@ -375,7 +396,14 @@ static EFI_STATUS read_inode_data(const UINT8 *inode, UINT8 *buf);
 EFI_STATUS list_directory(UINT32 dir_ino, DirEntry **entries, UINTN *count) {
     UINT8 inode[256]; EFI_STATUS s = read_inode(dir_ino, inode); if(EFI_ERROR(s)) return s;
     UINT32 fsize = *(UINT32*)(inode+4);
-    UINT8 *dir_buf; s = BS->AllocatePool(EfiLoaderData, fsize, (VOID**)&dir_buf); if(EFI_ERROR(s)) return s;
+    /* [修复] read_inode_data 每次都按整块 (block_size) 写入 buf:
+     *   read_block(phys, buf + l * block_size)
+     * 当 fsize 不是 block_size 的整数倍时, 最后一块会写到 buf 之外,
+     * 破坏紧随其后的堆块头, 之后 FreePool() 遍历块链就会死循环挂死。
+     * 这在部分 QEMU/OVMF 组合上必现 (Windows 版 QEMU 实测), 另一些组合
+     * 只是恰好没踩到关键元数据。故这里按块边界向上取整分配。 */
+    UINTN dir_alloc = ((UINTN)fsize + block_size - 1) & ~((UINTN)block_size - 1);
+    UINT8 *dir_buf; s = BS->AllocatePool(EfiLoaderData, dir_alloc, (VOID**)&dir_buf); if(EFI_ERROR(s)) return s;
     read_inode_data(inode, dir_buf);
     UINTN cnt=0; UINT8 *ptr=dir_buf, *end=dir_buf+fsize;
     while(ptr<end) { if(*(UINT32*)ptr) cnt++; ptr += *(UINT16*)(ptr+4); }
@@ -683,7 +711,12 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
     boot_progress(60, L"Loading kernel.elf");
     UINT8 kern_inode[256]; read_inode(kerninode, kern_inode);
     UINT32 fsize = *(UINT32*)(kern_inode+4);
-    UINT8 *kern_buf; BS->AllocatePool(EfiLoaderData, fsize, (VOID**)&kern_buf);
+    /* [修复] 同上: kernel.elf 大小 (242600) 不是 4096 的整数倍,
+     * 60 块 x 4096 = 245760 字节, 会越界写 3160 字节, 直接导致
+     * 随后的 FreePool(kern_buf) 挂死 —— 这就是启动卡在
+     * "Linking ELF segments" 之后不动的原因。 */
+    UINTN kern_alloc = ((UINTN)fsize + block_size - 1) & ~((UINTN)block_size - 1);
+    UINT8 *kern_buf; BS->AllocatePool(EfiLoaderData, kern_alloc, (VOID**)&kern_buf);
     read_inode_data(kern_inode, kern_buf);
     boot_progress(75, L"Linking ELF segments");
     UINT64 entry, stack; status = load_elf(kern_buf, &entry, &stack);

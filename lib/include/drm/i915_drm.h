@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Mirrors the Linux kernel DRM uapi headers (GPL-2.0-or-later / BSD-2-Clause).
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* drm/i915_drm.h — i915 DRM ioctl 占位 (Mesa i915 winsys 引用, swrast 不走此路径) */
 #ifndef _I915_DRM_H_
 #define _I915_DRM_H_

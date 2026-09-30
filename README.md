@@ -167,10 +167,39 @@ EFS 程序是扁平二进制文件，前 12 字节为头：
 
 ## 许可证
 
-本项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
+EFMOS 自研代码（内核、引导加载器、驱动、EFS 程序、Mesa 兼容层 `lib/`、内置编译器 `Program/gcc/`、构建脚本等）采用 **GNU General Public License v3.0**（GPLv3）发布，完整许可证文本见 [LICENSE](LICENSE)。
+
+Copyright (C) 2026 0x1a27
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+各源码文件的许可证声明见文件头的 `SPDX-License-Identifier` 注释。
+
+### 第三方组件及其许可证
+
+本项目包含或引用以下第三方软件，各自按其原有许可证使用（详见 [NOTICE](NOTICE)）：
+
+| 组件 | 位置 | 许可证 | 说明 |
+|------|------|--------|------|
+| Mesa 3D 24.2.5 | `mesa-src/`（未入库，单独检出） | MIT（核心库；GLX 为 SGI Free Software License B 等，逐组件见 `mesa-src/docs/license.rst`） | OpenGL/Gallium 实现，用于构建 EFMOS 图形栈（swrast 软件光栅化 + EGL/GBM） |
+| Sarasa Gothic 字体 | `fonts/` | SIL Open Font License 1.1（OFL-1.1，见 `fonts/OFL.txt`） | 基于 Iosevka + 思源黑体的 CJK 等宽字体；`gen_cjk_font.py` 生成的 CJK 点阵数据同属 OFL-1.1 |
+| OVMF (edk2) | `OVMF*.fd`（二进制，未入库） | GPLv2+ | UEFI 固件，需从 [edk2](https://github.com/tianocore/edk2) 项目单独构建/获取 |
+| Khronos EGL / Linux DRM uapi / libdrm | `lib/include/` | 接口规范分别属 Khronos / GPL-2.0-or-later + BSD-2-Clause / MIT | EFMOS 编写的最小兼容适配声明 |
+
+### 分发说明
+
+以二进制形式（如 `disk.img`、`efmos-install.iso`）分发 EFMOS 时，按 GPLv3 要求须同时提供对应的完整源码（或提供至少三年、以可接受费用提供的书面要约）；第三方组件须按其各自许可证保留版权声明，并随附相应许可证文本与源码获取途径。
 
 ## 致谢
 
-- **Sarasa Gothic** 字体 — 基于 Iosevka + 思源黑体的 CJK 等宽字体
-- **Mesa 3D** — OpenGL 实现参考
-- **OVMF** — UEFI 固件实现
+- **Sarasa Gothic** 字体（作者 Naoto T. Ito / be5invis）及思源黑体贡献者
+- **Mesa 3D** 社区
+- **OVMF / edk2** 项目

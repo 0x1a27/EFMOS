@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Mirrors the libgbm (MIT license) public API.
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* gbm.h — Mesa GBM (Generic Buffer Management) 公共头 (最小子集) */
 #ifndef _GBM_H_
 #define _GBM_H_

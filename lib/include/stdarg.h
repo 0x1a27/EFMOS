@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 #ifndef _EFMLIBC_STDARG_H
 
 /* __need___va_list 模式: 系统头 (如 glibc <stdio.h>) 以此模式包含 <stdarg.h>

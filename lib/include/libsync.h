@@ -1,3 +1,11 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * EFMOS compatibility header, part of the EFMOS libc layer
+ * (GPLv3; full license text in LICENSE).
+ * Copyright (C) 2026 0x1a27
+ */
+
 /* libsync.h — minimal stub for Mesa fence sync (swrast doesn't need real sync) */
 #ifndef _LIBSYNC_H_
 #define _LIBSYNC_H_

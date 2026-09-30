@@ -1,3 +1,10 @@
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# EFMOS compatibility header, part of the EFMOS libc layer
+# (GPLv3; full license text in LICENSE).
+# Copyright (C) 2026 0x1a27
+
 # EFMOS Mesa extra dependencies stub bundle
 # Provides: expat (XML_Parser*), zlib (deflate/inflate/crc32),
 #           libelf (elf_begin/elf_end), SHA1 (SHA1Init/Update/Final)

@@ -1,3 +1,10 @@
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# EFMOS compatibility header, part of the EFMOS libc layer
+# (GPLv3; full license text in LICENSE).
+# Copyright (C) 2026 0x1a27
+
 # EFMOS GBM compatibility layer (buffer manager for swrast winsys)
 # Provides: gbm_create_device, gbm_bo_create, gbm_surface_create, etc.
 prefix=@PREFIX@
