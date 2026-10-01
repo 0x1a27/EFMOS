@@ -1,0 +1,54 @@
+﻿=== vga lines in log ===
+=== context around vga build ===
+=== lines 60-100 of log ===
+gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ttext=0x500000 -o efmsfile/userman.elf efmsfile/userman.c
+objcopy -O binary -j .text -j .rodata -j .data efmsfile/userman.elf efmsfile/userman.bin
+SIZE=$(stat -c%s efmsfile/userman.bin); \
+bash -c "printf '\x00\x00\x50\x00\x00\x00\x00\x00' > efmsfile/userman.efs"; \
+if command -v xxd >/dev/null 2>&1; then \
+  printf '%08x' $SIZE | xxd -r -p >> efmsfile/userman.efs; \
+else \
+  b0=$(( (SIZE >> 24) & 0xFF )); b1=$(( (SIZE >> 16) & 0xFF )); \
+  b2=$(( (SIZE >> 8)  & 0xFF )); b3=$(( SIZE & 0xFF )); \
+  bash -c "printf '\x'$(printf '%02x' $b0)'\x'$(printf '%02x' $b1)'\x'$(printf '%02x' $b2)'\x'$(printf '%02x' $b3)" >> efmsfile/userman.efs; \
+fi; \
+cat efmsfile/userman.bin >> efmsfile/userman.efs
+gcc -c -ffreestanding -fno-pic -mno-red-zone -mcmodel=large -fno-asynchronous-unwind-tables -fno-stack-protector -fomit-frame-pointer -O2 -mno-sse -mno-sse2 -mno-mmx -Idrivers -Iefmsfile -o drivers/Graphics.o drivers/graphics_drv.c
+drivers/graphics_drv.c: In function ‘gfx_get_mode’:
+drivers/graphics_drv.c:657:54: warning: taking address of packed member of ‘struct drv_gop_fb’ may result in an unaligned pointer value [-Waddress-of-packed-member]
+  657 |     if (out_fb_base) *out_fb_base = (unsigned int **)&g_fb.fb_base;
+      |                                                      ^~~~~~~~~~~~~
+objcopy -R .note.gnu.property -R .note.ABI-tag -R .eh_frame -R .eh_frame_hdr -R .comment drivers/Graphics.o drivers/Graphics.stripped.o
+ld --nmagic --no-dynamic-linker --no-warn-rwx-segments -T efm_flat.ld -o drivers/Graphics.elf -Ttext=0x2800000 drivers/Graphics.stripped.o
+/usr/bin/x86_64-linux-gnu-ld.bfd: warning: cannot find entry symbol _start; defaulting to 0000000002800000
+objcopy -O binary -j .text -j .rodata -j .data drivers/Graphics.elf drivers/Graphics.bin
+gcc -c -ffreestanding -fno-pic -mno-red-zone -mcmodel=large -fno-asynchronous-unwind-tables -fno-stack-protector -fomit-frame-pointer -O2 -mno-sse -mno-sse2 -mno-mmx -Idrivers -o drivers/ahci.o drivers/ahci_drv.c
+drivers/ahci_drv.c: In function ‘drv_main’:
+drivers/ahci_drv.c:543:39: warning: iteration 33 invokes undefined behavior [-Waggressive-loop-optimizations]
+  543 |         for (int i = 0; p[i]; i++) b[n++] = p[i];
+      |                                      ~^~
+drivers/ahci_drv.c:543:25: note: within this loop
+  543 |         for (int i = 0; p[i]; i++) b[n++] = p[i];
+      |                         ^
+drivers/ahci_drv.c:546:28: warning: writing 1 byte into a region of size 0 [-Wstringop-overflow=]
+  546 |         if (rc < 0) b[n++] = '-';
+      |                     ~~~~~~~^~~~~
+drivers/ahci_drv.c:541:14: note: at offset 34 into destination object ‘b’ of size 32
+  541 |         char b[32]; int n = 0;
+      |              ^
+objcopy -R .note.gnu.property -R .note.ABI-tag -R .eh_frame -R .eh_frame_hdr -R .comment drivers/ahci.o drivers/ahci.stripped.o
+ld --nmagic --no-dynamic-linker --no-warn-rwx-segments -T efm_flat.ld -o drivers/ahci.elf -Ttext=0x2400000 drivers/ahci.stripped.o
+/usr/bin/x86_64-linux-gnu-ld.bfd: warning: cannot find entry symbol _start; defaulting to 0000000002400000
+objcopy -O binary -j .text -j .rodata -j .data drivers/ahci.elf drivers/ahci.bin
+gcc -c -ffreestanding -fno-pic -mno-red-zone -mcmodel=large -fno-asynchronous-unwind-tables -fno-stack-protector -fomit-frame-pointer -O2 -I. -o Program/gcc/gcc.o Program/gcc/gcc.c
+objcopy -R .note.gnu.property -R .note.ABI-tag -R .eh_frame -R .eh_frame_hdr -R .comment Program/gcc/gcc.o Program/gcc/gcc.stripped.o
+=== make exit summary: rerun vga target only ===
+gcc -c -ffreestanding -fno-pic -mno-red-zone -mcmodel=large -fno-asynchronous-unwind-tables -fno-stack-protector -fomit-frame-pointer -O2 -mno-sse -mno-sse2 -mno-mmx -Idrivers -o drivers/vga.o drivers/vga_drv.c
+drivers/vga_drv.c: In function ‘vga_get_mode’:
+drivers/vga_drv.c:140:54: warning: taking address of packed member of ‘struct drv_gop_fb’ may result in an unaligned pointer value [-Waddress-of-packed-member]
+  140 |     if (out_fb_base) *out_fb_base = (unsigned int **)&g_fb.fb_base;
+      |                                                      ^~~~~~~~~~~~~
+objcopy -R .note.gnu.property -R .note.ABI-tag -R .eh_frame -R .eh_frame_hdr -R .comment drivers/vga.o drivers/vga.stripped.o
+ld --nmagic --no-dynamic-linker --no-warn-rwx-segments -T efm_flat.ld -o drivers/vga.elf -Ttext=0x2000000 drivers/vga.stripped.o
+/usr/bin/x86_64-linux-gnu-ld.bfd: warning: cannot find entry symbol _start; defaulting to 0000000002000000
+objcopy -O binary -j .text -j .rodata -j .data drivers/vga.elf drivers/vga.bin

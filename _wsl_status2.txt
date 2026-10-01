@@ -1,0 +1,28 @@
+﻿=== build log tail ===
+objcopy -O binary -j .text -j .rodata -j .data Program/gcc/gcc.elf Program/gcc/gcc.bin
+SIZE=$(stat -c%s Program/gcc/gcc.bin); \
+bash -c "printf '\x00\x00\x70\x00\x00\x00\x00\x00' > Program/gcc/gcc.efs"; \
+if command -v xxd >/dev/null 2>&1; then \
+  printf '%08x' $SIZE | xxd -r -p >> Program/gcc/gcc.efs; \
+else \
+  b0=$(( (SIZE >> 24) & 0xFF )); b1=$(( (SIZE >> 16) & 0xFF )); \
+  b2=$(( (SIZE >> 8)  & 0xFF )); b3=$(( SIZE & 0xFF )); \
+  bash -c "printf '\x'$(printf '%02x' $b0)'\x'$(printf '%02x' $b1)'\x'$(printf '%02x' $b2)'\x'$(printf '%02x' $b3)" >> Program/gcc/gcc.efs; \
+fi; \
+cat Program/gcc/gcc.bin >> Program/gcc/gcc.efs
+python3 build_disk.py
+Creating blank disk.img...
+Writing GPT partition table...
+Creating FAT16 ESP partition...
+Creating ext4 partition...
+Writing files to ext4...
+Writing ext4 partition to disk...
+disk.img created successfully!
+qemu-img convert -f raw -O vmdk disk.img disk.vmdk
+=== artifacts ===
+-rwxrwxrwx 1 administrator administrator 157286400 Oct  1 01:27 disk.img
+-rwxrwxrwx 1 administrator administrator   5373952 Oct  1 01:27 disk.vmdk
+=== make/gcc running? ===
+=== log mtime ===
+2026-10-01 01:27:16.108611773 +0800 10200
+Thu Oct  1 01:35:11 CST 2026

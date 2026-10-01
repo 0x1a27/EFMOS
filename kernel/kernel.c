@@ -116,6 +116,34 @@ struct FileEntry { char path[64]; unsigned int size; unsigned int offset; unsign
 /* bootlogo.h: 用户上传的系统图标 (200x200 alpha 灰度图, 0=透明, 255=不透明白) */
 #include "bootlogo.h"
 
+/* ========== GDT / IDT ========== */
+struct gdt_entry {
+    unsigned short limit_low;
+    unsigned short base_low;
+    unsigned char base_mid;
+    unsigned char access;
+    unsigned char gran;
+    unsigned char base_high;
+} __attribute__((packed));
+
+struct idt_entry {
+    unsigned short offset_low;
+    unsigned short selector;
+    unsigned char zero;
+    unsigned char type_attr;
+    unsigned short offset_high;
+} __attribute__((packed));
+
+struct GdtPtr {
+    unsigned short limit;
+    unsigned long long base;
+} __attribute__((packed));
+
+struct IdtPtr {
+    unsigned short limit;
+    unsigned long long base;
+} __attribute__((packed));
+
 static struct gdt_entry gdt[7]; static struct GdtPtr gdt_ptr;
 static struct idt_entry idt[256]; static struct IdtPtr idt_ptr;
 

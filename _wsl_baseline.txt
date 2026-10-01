@@ -1,0 +1,28 @@
+﻿=== errors in log ===
+79:/usr/bin/x86_64-linux-gnu-ld.bfd: warning: cannot find entry symbol _start; defaulting to 0000000002800000
+83:drivers/ahci_drv.c:543:39: warning: iteration 33 invokes undefined behavior [-Waggressive-loop-optimizations]
+97:/usr/bin/x86_64-linux-gnu-ld.bfd: warning: cannot find entry symbol _start; defaulting to 0000000002400000
+=== warnings count ===
+5
+=== baseline artifact checksums ===
+da3a455847fe39aedcc14e1b705a3e37  bootloader/BOOTX64.EFI
+ef3667212ee70ef98c7859bfaef9a9a3  kernel/kernel.elf
+9121562aff543ea7f0d2178fa68b953d  efmsfile/fileman.efs
+4291689072f756b6a56908cf66547eed  efmsfile/setting.efs
+4f94bd2c39f352f9ce4f7c94755f1edc  efmsfile/userman.efs
+b46dc334fb695b11886229f7fefcdfd8  efmsfile/efmlogin.efs
+f7ae7407b8a1a09bf8f9cb94c5c733b6  efmsfile/efmshell.efs
+e3cb6cc2d721adab3ca48e27ed2f623e  efmsfile/efmloader.efs
+131e605f33adc9f219e30ac2385c5f08  efmsfile/efmcompositor.efs
+78852173b4a0388644d18a43dd9fe029  efmsfile/efmAether.efs
+MISSING drivers/vga.drv
+1c349f0f32b28c6b3976554223fd273d  drivers/ahci.drv
+ad832e4c4ecaa0c3297227c678f5e09a  drivers/Graphics.drv
+4d89acc6c363656f25eab3ac97a3089d  Program/gcc/gcc.efs
+67d940284e473dd27a555cb774bc1dc9  disk.img
+=== symbol check: kernel.elf entry ===
+000000000020001b T _start
+0000000000238178 b ext4_start_lba
+0000000000253090 b g_smp_aps_started
+0000000000253070 b g_start_menu_count
+0000000000235174 d g_start_menu_hover_idx
