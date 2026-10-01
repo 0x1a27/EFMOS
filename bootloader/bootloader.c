@@ -639,7 +639,7 @@ static int try_blockio_for_ext4(EFI_BLOCK_IO *b, EFI_HANDLE h,
     }
 }
 
-EFI_STATUS EFIAPI EfiMain(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
     BS = sys->BootServices; RT = sys->RuntimeServices; ST = sys;
     print(L"\r\nEFMOS Boot\r\n");
 

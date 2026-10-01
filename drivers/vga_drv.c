@@ -167,7 +167,7 @@ void drv_entry(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
     );
 }
 
-void DrvMain(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
+void drv_main(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
     if (!iface || iface->magic != DRV_IFACE_MAGIC) return;
     if (!fb || !fb->fb_base) { iface->log("[vga] no gop fb info, abort.\n"); return; }
 

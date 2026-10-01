@@ -499,7 +499,7 @@ static struct drv_disk_ops g_ahci_ops = {
 /* ========== 驱动入口 ========== */
 /* drv_main 的实现在下方, drv_entry 通过 forward declaration 调用 */
 
-void DrvMain(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
+void drv_main(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
     (void)fb;
     if (!iface || iface->magic != DRV_IFACE_MAGIC) return;
     g_iface = iface;

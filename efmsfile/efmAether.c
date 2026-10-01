@@ -240,7 +240,7 @@ static void safe_strcpy96(volatile char *dest, const char *src) {
 }
 
 /* ========== 主程序: 仅写 aether_render_info, 不做任何像素操作 ========== */
-void AetherMain(void) {
+void aether_main(void) {
     cm_serial("AE:enter_info_provider\n");
 
     /* 1. 检查 kernel API magic */

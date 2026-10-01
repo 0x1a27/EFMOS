@@ -36,12 +36,12 @@
  */
 
 /* ========== 内核 API 表 (与内核 struct kernel_api 严格匹配) ========== */
-struct EfsDirent {
+struct efs_dirent {
     char name[64];
     unsigned int size;
     unsigned int is_dir;
 };
-struct KernelApi {
+struct kernel_api {
     unsigned int magic;
     unsigned int _pad;
     void (*put_char)(char);
@@ -106,7 +106,7 @@ struct KernelApi {
     int  (*read_text)(char *buf, int max);
     int  (*fsop)(const char *op, const char *a, const char *b, char *out, int outsz);
 };
-#define API ((struct KernelApi*)0x9000)
+#define API ((struct kernel_api*)0x9000)
 
 /* ========== Logo 像素数据 (gen_logo.py 生成, 128x128, RLE) ========== */
 #include "logo.h"
@@ -1115,7 +1115,7 @@ static void com1(char c) {
     );
 }
 
-void EfmshellMain(void) {
+void efmshell_main(void) {
     com1('M');   /* 探针: efmshell_main 已进入 */
     if (API->magic != 0xEF110001u) {
         com1('X');   /* 探针: magic 异常 (仍继续跑, 只警告) */

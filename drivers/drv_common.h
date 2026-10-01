@@ -71,7 +71,7 @@ extern "C" {
  * 驱动必须用完全相同的布局, 否则读到的字段全错. */
 #ifndef DRV_GOP_FB_DEFINED
 #define DRV_GOP_FB_DEFINED
-struct DrvGopFb {
+struct drv_gop_fb {
     unsigned long long fb_base;   /* offset 0: 帧缓冲物理地址 */
     unsigned int hr;              /* offset 8: 水平分辨率 */
     unsigned int vr;              /* offset 12: 垂直分辨率 */

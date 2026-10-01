@@ -41,12 +41,14 @@
 #  error "kernel.c must NOT be compiled as PIE. Add -fno-pic -no-pie"
 #endif
 
-struct GdtEntry { unsigned short limit_low, base_low; unsigned char base_mid, access, granularity, base_high; } __attribute__((packed));
-struct GdtPtr { unsigned short limit; unsigned long long base; } __attribute__((packed));
-struct IdtEntry { unsigned short offset_low, selector; unsigned char ist, flags; unsigned short offset_mid; unsigned int offset_high, zero; } __attribute__((packed));
-struct IdtPtr { unsigned short limit; unsigned long long base; } __attribute__((packed));
-struct GopFb { unsigned long long fb_base; unsigned int hr, vr, ppsl; } __attribute__((packed));
-struct FileEntry { char path[64]; unsigned int size; unsigned int offset; unsigned int type; };
+/* [命名规范] 结构体标签保持全项目统一的小写下划线风格 (与 struct kernel_api /
+ * struct wm_window / struct task_struct 等保持一致); 函数名才用 PascalCase. */
+struct gdt_entry { unsigned short limit_low, base_low; unsigned char base_mid, access, granularity, base_high; } __attribute__((packed));
+struct gdt_ptr { unsigned short limit; unsigned long long base; } __attribute__((packed));
+struct idt_entry { unsigned short offset_low, selector; unsigned char ist, flags; unsigned short offset_mid; unsigned int offset_high, zero; } __attribute__((packed));
+struct idt_ptr { unsigned short limit; unsigned long long base; } __attribute__((packed));
+struct gop_fb { unsigned long long fb_base; unsigned int hr, vr, ppsl; } __attribute__((packed));
+struct file_entry { char path[64]; unsigned int size; unsigned int offset; unsigned int type; };
 
 /* 字体尺寸: 必须与 efmcompositor.c 的 TTF_FONT_W/TTF_FONT_H 一致.
  * 之前内核用 10x18 而 compositor 用 12x22, 导致窗口尺寸/光标位置/任务栏高度
@@ -116,36 +118,9 @@ struct FileEntry { char path[64]; unsigned int size; unsigned int offset; unsign
 /* bootlogo.h: 用户上传的系统图标 (200x200 alpha 灰度图, 0=透明, 255=不透明白) */
 #include "bootlogo.h"
 
-/* ========== GDT / IDT ========== */
-struct gdt_entry {
-    unsigned short limit_low;
-    unsigned short base_low;
-    unsigned char base_mid;
-    unsigned char access;
-    unsigned char gran;
-    unsigned char base_high;
-} __attribute__((packed));
-
-struct idt_entry {
-    unsigned short offset_low;
-    unsigned short selector;
-    unsigned char zero;
-    unsigned char type_attr;
-    unsigned short offset_high;
-} __attribute__((packed));
-
-struct GdtPtr {
-    unsigned short limit;
-    unsigned long long base;
-} __attribute__((packed));
-
-struct IdtPtr {
-    unsigned short limit;
-    unsigned long long base;
-} __attribute__((packed));
-
-static struct gdt_entry gdt[7]; static struct GdtPtr gdt_ptr;
-static struct idt_entry idt[256]; static struct IdtPtr idt_ptr;
+/* ========== GDT / IDT 实例 (类型定义见文件开头) ========== */
+static struct gdt_entry gdt[7]; static struct gdt_ptr gdt_ptr;
+static struct idt_entry idt[256]; static struct idt_ptr idt_ptr;
 
 /* [EFS 恢复机制] 当用户程序调用 exit() 时会触发 int 0x3 (#DB 异常),
  * 异常处理器检测到后通过这些全局变量恢复内核状态 */
@@ -8751,9 +8726,9 @@ static void load_idt(void) {
     asm volatile("lidt %0" : : "m"(idt_ptr));
 }
 static void InitGdt(void) {
-    set_gdt_entry(0, 0, 0, 0, 0);
-    set_gdt_entry(1, 0, 0xFFFFFFFF, 0x9A, 0xAF);
-    set_gdt_entry(2, 0, 0xFFFFFFFF, 0x92, 0xAF);
+    SetGdtEntry(0, 0, 0, 0, 0);
+    SetGdtEntry(1, 0, 0xFFFFFFFF, 0x9A, 0xAF);
+    SetGdtEntry(2, 0, 0xFFFFFFFF, 0x92, 0xAF);
 }
 static void init_idt(void) {
     for (int i = 0; i < 256; i++)
@@ -10808,7 +10783,7 @@ static void smp_ap_main(int cpu_idx) {
     /* AP LAPIC enable */
     lapic_write(LAPIC_SIVR, 0xFF | LAPIC_ENABLE);
     /* 设置好 gdt + ds/es/fs/gs/ss 选择子 (trampoline 已设置, 保险重设) */
-    load_gdt();
+    LoadGdt();
     /* 标记已启动 */
     __atomic_add_fetch(&g_smp_aps_started, 1, __ATOMIC_RELEASE);
     /* AP idle loop: hlt forever (等待以后调度器迁移任务过来). */
@@ -10949,9 +10924,9 @@ static int key_eq(const char *a, int al, const char *b, int bl) {
     return 1;
 }
 
-void Kmain(void) {
+void kmain(void) {
     serial_write("\nEFMOS Kernel\n");
-    init_gdt(); load_gdt(); serial_write("GDT OK\n");
+    InitGdt(); LoadGdt(); serial_write("GDT OK\n");
     init_idt(); load_idt(); serial_write("IDT OK\n");
 
     /* [关键修复] 启用 SSE/SSE2: 设置 CR4.OSFXSR (bit9) + CR4.OSXMMEXCPT (bit10),

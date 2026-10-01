@@ -31,7 +31,7 @@
  *       - 在每次 GPU API 调用尾部, 把"脏矩形"(dirty rect) 复制回真正的
  *         GOP front buffer, 且复制是 32-bit 对齐 burst (避免单字节搬运
  *         导致的逐像素"逐行刷出", 也就是肉眼能看到的闪烁/撕裂)
- *       - 脏矩形合并算法: 每次调用 gfx_dirty_mark(x,y,w,h) 把脏区扩张,
+ *       - 脏矩形合并算法: 每次调用 GfxDirtyMark(x,y,w,h) 把脏区扩张,
  *         只在一次 flush 时复制合并后的矩形, 减少内存搬运带宽
  *
  *   [2] 消除撕裂: 每次 flush 时把复制限制在 "同一条扫描线" 完成
@@ -73,7 +73,7 @@
 #include "ttf_font.c"
 
 /* ==================== 1. 全局状态 ==================== */
-static struct DrvGopFb g_fb;
+static struct drv_gop_fb g_fb;
 static int  g_initialized = 0;
 
 /* --- 双缓冲 --- */
@@ -193,7 +193,7 @@ static const unsigned char g_font8x16[96][16] = {
 void drv_main(struct drv_kernel_if *iface, struct drv_gop_fb *fb);
 
 __attribute__((naked, section(".text.start")))
-void drv_entry(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
+void drv_entry(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
     __asm__ volatile(
         "push %rbp\n\t"
         "mov %rsp, %rbp\n\t"
@@ -236,7 +236,7 @@ static void GfxDirtyMark(int x1, int y1, int x2, int y2) {
 
 /* 行拷贝: 64-bit 标量展开 (不使用 SSE2, 保证兼容性, 同时比 32-bit 逐像素快 2 倍)
  * 策略: 对齐到 8 字节 (2 像素) 一次拷贝, 剩余 1 像素用 32-bit 收尾 */
-static inline void gfx_sse2_copy_row(unsigned int *dst, const unsigned int *src, int w) {
+static inline void GfxSse2CopyRow(unsigned int *dst, const unsigned int *src, int w) {
     int i = 0;
     /* 8 字节 (2 像素) 一组, 用 unsigned long long 拷贝 */
     int pairs = w >> 1;
@@ -255,7 +255,7 @@ static void GfxFlushNow(void) {
     for (int y = 0; y < h; y++) {
         unsigned long off = ((unsigned long)(g_dy1 + y) * g_pitch_b)
                           + ((unsigned long)g_dx1 * 4UL);
-        gfx_sse2_copy_row((unsigned int*)(front + off),
+        GfxSse2CopyRow((unsigned int*)(front + off),
                           (unsigned int*)(g_back + off), w);
     }
     g_dirty = 0;
@@ -279,7 +279,7 @@ static void GfxCopyBackRectToFront(int x, int y, int w, int h) {
     for (int yy = 0; yy < rows; yy++) {
         unsigned long off = ((unsigned long)(y1 + yy) * g_pitch_b)
                           + ((unsigned long)x1 * 4UL);
-        gfx_sse2_copy_row((unsigned int*)(front + off),
+        GfxSse2CopyRow((unsigned int*)(front + off),
                           (unsigned int*)(g_back + off), cw);
     }
 }
@@ -295,7 +295,7 @@ static void GfxCopyBackRectToFront(int x, int y, int w, int h) {
 static void GfxBlitBuffer(int dst_x, int dst_y, int w, int h,
                             const void *src, int src_pitch) {
     if (!g_back || !g_initialized || !src || w <= 0 || h <= 0) return;
-    struct DrvGopFb *fb = &g_fb;
+    struct drv_gop_fb *fb = &g_fb;
     /* clip 到屏幕范围 */
     int x1 = dst_x, y1 = dst_y;
     int x2 = dst_x + w - 1, y2 = dst_y + h - 1;
@@ -314,10 +314,10 @@ static void GfxBlitBuffer(int dst_x, int dst_y, int w, int h,
     for (int yy = 0; yy < copy_h; yy++) {
         unsigned int *dst_row = bd + ((unsigned long)(y1 + yy) * (unsigned long)dst_pitch_px);
         const unsigned int *src_row = s + ((unsigned long)(src_offset_y + yy) * (unsigned long)(src_pitch / 4));
-        gfx_sse2_copy_row(dst_row + x1, src_row + src_offset_x, copy_w);
+        GfxSse2CopyRow(dst_row + x1, src_row + src_offset_x, copy_w);
     }
     /* 标记脏矩形, 下一次 flush 自动搬到 front */
-    gfx_dirty_mark(x1, y1, x2, y2);
+    GfxDirtyMark(x1, y1, x2, y2);
 }
 
 /* alpha 混合: src=前景 0xRRGGBB, a = 0..255 alpha; dst=背景 (已经在 back buffer 中的像素) */
@@ -358,7 +358,7 @@ static void GfxPutPixel(int x, int y, unsigned int c) {
     if ((unsigned int)x >= g_fb.hr || (unsigned int)y >= g_fb.vr) return;
     unsigned int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
     bb_write_px(g_back, g_pitch_px, x, y, r, g, b);
-    gfx_dirty_mark(x, y, x, y);
+    GfxDirtyMark(x, y, x, y);
 }
 
 /* 带 alpha 的 put_pixel (内部辅助, 给 AA 字体用) */
@@ -369,7 +369,7 @@ static void GfxPutPixelBlend(int x, int y, unsigned int r, unsigned int g, unsig
     unsigned long off = (unsigned long)y * g_pitch_b + (unsigned long)x * 4UL;
     unsigned int *p = (unsigned int*)(g_back + off);
     *p = bb_blend_u32(*p, r, g, b, a);
-    gfx_dirty_mark(x, y, x, y);
+    GfxDirtyMark(x, y, x, y);
 }
 
 /* ==================== 4. ops: fill_rect (含渐变入口) ==================== */
@@ -389,11 +389,11 @@ static void GfxFillRect(int x1, int y1, int x2, int y2, unsigned int c) {
         unsigned int *row = (unsigned int*)(g_back + off);
         for (int x = 0; x < w; x++) row[x] = u32;
     }
-    gfx_dirty_mark(x1, y1, x2, y2);
+    GfxDirtyMark(x1, y1, x2, y2);
 }
 
 /* 线性渐变填充 (竖向): c_top -> c_bottom */
-static void gfx_fill_gradient(int x1, int y1, int x2, int y2,
+static void GfxFillGradient(int x1, int y1, int x2, int y2,
                               unsigned int c_top, unsigned int c_bot) {
     if (!g_initialized || !g_back) return;
     if (x1>x2) { int t=x1; x1=x2; x2=t; }
@@ -417,7 +417,7 @@ static void gfx_fill_gradient(int x1, int y1, int x2, int y2,
         unsigned int *row = (unsigned int*)(g_back + off);
         for (int x = 0; x < w; x++) row[x] = u32;
     }
-    gfx_dirty_mark(x1, y1, x2, y2);
+    GfxDirtyMark(x1, y1, x2, y2);
 }
 
 /* ==================== 5. ops: draw_char_8x16 (内置 8x16 字体 + 2x2 SuperSampling AA) ====================
@@ -449,7 +449,7 @@ static void GfxDrawChar8x16(int x, int y, char c_raw, unsigned int fg, unsigned 
 
     /* 背景填充: 透明模式跳过, 避免覆盖下层 EFS 图形 */
     if (!transparent) {
-        gfx_fill_rect(x, y, x+7, y+15, bg);
+        GfxFillRect(x, y, x+7, y+15, bg);
     }
 
     /* 用 4 邻居采样 (Box 抗锯齿) 对每个目标物理像素 (px, py) 计算 alpha:
@@ -476,17 +476,17 @@ static void GfxDrawChar8x16(int x, int y, char c_raw, unsigned int fg, unsigned 
                 /* 透明背景: 不混合, 直接用前景色 (alpha>=128 即半覆盖以上) */
                 if (alpha >= 128) {
                     bb_write_px(g_back, g_pitch_px, px, py, fr, fg_, fb);
-                    gfx_dirty_mark(px,py,px,py);
+                    GfxDirtyMark(px,py,px,py);
                 }
             } else if (alpha == 255) {
                 bb_write_px(g_back, g_pitch_px, px, py, fr, fg_, fb);
-                gfx_dirty_mark(px,py,px,py);
+                GfxDirtyMark(px,py,px,py);
             } else {
                 unsigned int nr = (fr*alpha + br*(255-alpha) + 127)/255;
                 unsigned int ng = (fg_*alpha + bg_*(255-alpha) + 127)/255;
                 unsigned int nb = (fb*alpha + bb_*(255-alpha) + 127)/255;
                 bb_write_px(g_back, g_pitch_px, px, py, nr, ng, nb);
-                gfx_dirty_mark(px,py,px,py);
+                GfxDirtyMark(px,py,px,py);
             }
         }
     }
@@ -500,7 +500,7 @@ static int g_ttf_ascent_px = 16;        /* 字体 ascent (像素): 基线距 cel
 /* 用 TTF 字体渲染 Unicode 字符到 back buffer.
  * 返回字符实际像素宽度, 0=失败.
  * cell_h: 字符单元高度 (像素), 用于背景填充; <=0 时使用 g_ttf_pixel_size */
-static int gfx_draw_char_unicode(int x, int y, unsigned int codepoint,
+static int GfxDrawCharUnicode(int x, int y, unsigned int codepoint,
                                  unsigned int fg, unsigned int bg,
                                  int cell_w, int cell_h) {
     if (!g_initialized || !g_back) return 0;
@@ -521,7 +521,7 @@ static int gfx_draw_char_unicode(int x, int y, unsigned int codepoint,
      * [等宽字体] pixel_size 已校准使 advance == cell_w, 字形天然适配 cell,
      * 不会溢出到相邻 cell, 因此 bg 填充不会覆盖任何相邻字符的像素。*/
     if (!transparent && cell_w > 0) {
-        gfx_fill_rect(x, y, x + cell_w - 1, y + unit_h - 1, bg);
+        GfxFillRect(x, y, x + cell_w - 1, y + unit_h - 1, bg);
     }
 
     /* 计算字形在单元中的位置.
@@ -614,7 +614,7 @@ static int gfx_draw_char_unicode(int x, int y, unsigned int codepoint,
         if (cell_w > 0 && dx2 < x + cell_w - 1) dx2 = x + cell_w - 1;
         if (dy2 < y + unit_h - 1) dy2 = y + unit_h - 1;
     }
-    gfx_dirty_mark(x, y, dx2, dy2);
+    GfxDirtyMark(x, y, dx2, dy2);
 
     /* 返回字形步进宽度:
      *   - 等宽模式: 固定返回 mono_w (ASCII = cell_w, CJK = 2*cell_w),
@@ -626,7 +626,7 @@ static int gfx_draw_char_unicode(int x, int y, unsigned int codepoint,
 }
 
 /* ==================== 6. ops: scroll_up (双缓冲下只需搬 back buffer, 然后 flush 脏矩形) ==================== */
-static void gfx_scroll_up(int px_lines) {
+static void GfxScrollUp(int px_lines) {
     if (!g_initialized || !g_back) return;
     if (px_lines <= 0) return;
     if ((unsigned int)px_lines >= g_fb.vr) { px_lines = (int)g_fb.vr; }
@@ -643,13 +643,13 @@ static void gfx_scroll_up(int px_lines) {
     unsigned int bg_u32 = bb_px_u32(0x1A, 0x1A, 0x2E);  /* 与内核 bg 一致: 深靛色 0x1A1A2E */
     for (unsigned long i = 0; i < n32c; i++) dst[clear_start_idx + i] = bg_u32;
     /* 整个屏幕都是脏的 */
-    gfx_dirty_mark(0, 0, (int)g_fb.hr - 1, (int)g_fb.vr - 1);
+    GfxDirtyMark(0, 0, (int)g_fb.hr - 1, (int)g_fb.vr - 1);
     /* scroll_up 调用后通常紧跟着用户看屏幕, 这里立即 flush 避免"下一帧才看到滚动结果" */
-    gfx_flush_now();
+    GfxFlushNow();
 }
 
 /* ==================== 7. ops: get_mode ==================== */
-static void gfx_get_mode(unsigned int *out_hr, unsigned int *out_vr,
+static void GfxGetMode(unsigned int *out_hr, unsigned int *out_vr,
                          unsigned int *out_ppsl, unsigned int ***out_fb_base) {
     if (out_hr)      *out_hr      = g_fb.hr;
     if (out_vr)      *out_vr      = g_fb.vr;
@@ -670,17 +670,17 @@ static int GfxGetBackbuffer(void **out_ptr, int *out_pitch, int *out_w, int *out
 
 /* ==================== 8. ops 表 (严格按 drv_common.h 顺序) ==================== */
 static struct drv_gfx_ops g_gfx_ops = {
-    gfx_put_pixel,       /* put_pixel */
-    gfx_fill_rect,       /* fill_rect */
-    gfx_draw_char_8x16,  /* draw_char_8x16 (含内置 8x16 字体 + 4 邻居 SSAA) */
-    gfx_scroll_up,       /* scroll_up (32-bit burst + 立即 flush) */
-    gfx_get_mode,        /* get_mode */
-    gfx_flush_now,       /* flush: 双缓冲脏矩形一次性刷到前端 (无脏矩形则 NOP) */
-    gfx_copy_back_rect_to_front, /* copy_back_rect_to_front: 局部 back→front 拷贝 (鼠标拖尾修复) */
-    gfx_blit_buffer,     /* blit_buffer: Mesa swrast → back buffer 批量拷贝 */
-    gfx_dirty_mark,      /* mark_dirty_rect: 手动标记脏矩形 */
-    gfx_get_backbuffer,  /* get_backbuffer: 暴露 back buffer 给 Mesa 直接渲染 */
-    gfx_draw_char_unicode, /* draw_char_unicode: TTF 字体 Unicode 字符渲染 */
+    GfxPutPixel,       /* put_pixel */
+    GfxFillRect,       /* fill_rect */
+    GfxDrawChar8x16,  /* draw_char_8x16 (含内置 8x16 字体 + 4 邻居 SSAA) */
+    GfxScrollUp,       /* scroll_up (32-bit burst + 立即 flush) */
+    GfxGetMode,        /* get_mode */
+    GfxFlushNow,       /* flush: 双缓冲脏矩形一次性刷到前端 (无脏矩形则 NOP) */
+    GfxCopyBackRectToFront, /* copy_back_rect_to_front: 局部 back→front 拷贝 (鼠标拖尾修复) */
+    GfxBlitBuffer,     /* blit_buffer: Mesa swrast → back buffer 批量拷贝 */
+    GfxDirtyMark,      /* mark_dirty_rect: 手动标记脏矩形 */
+    GfxGetBackbuffer,  /* get_backbuffer: 暴露 back buffer 给 Mesa 直接渲染 */
+    GfxDrawCharUnicode, /* draw_char_unicode: TTF 字体 Unicode 字符渲染 */
 };
 
 /* ==================== 9. 像素格式自动检测 (判断 front buffer 到底是 BGRx 还是 RGBx)
@@ -690,7 +690,7 @@ static struct drv_gfx_ops g_gfx_ops = {
  *   - 读 front(0,0) 字节序: 若 p[0]=R=0xFF => RGBx, 若 p[2]=R=0xFF => BGRx
  *   - 再把 front 原始值恢复.
  * 如果此像素当前为全 0 (黑屏), 那读回字节 0/2 都是 0 无法区分, 默认 BGRx 即可. */
-static void gfx_detect_pixfmt(void) {
+static void GfxDetectPixfmt(void) {
     unsigned char *fb_bytes = (unsigned char*)g_fb.fb_base;
     unsigned int orig0 = *(unsigned int*)fb_bytes;
 
@@ -735,7 +735,7 @@ static void dec_buf(char *out, int *pn, unsigned long v) {
     while (p--) out[(*pn)++] = tmp[p];
 }
 
-void DrvMain(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
+void drv_main(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
     if (!iface || iface->magic != DRV_IFACE_MAGIC) {
         if (iface) iface->log("[Graphics] bad iface magic\n");
         return;
@@ -768,7 +768,7 @@ void DrvMain(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
     g_initialized = 1;
 
     /* 自动检测像素格式 (BGRx vs RGBx) */
-    gfx_detect_pixfmt();
+    GfxDetectPixfmt();
 
     /* 脏矩形初始清空 */
     g_dirty = 0; g_dx1 = g_dy1 = g_dx2 = g_dy2 = 0;

@@ -762,7 +762,7 @@ static int build_config(char *buf, const struct settings *s) {
 }
 
 /* ========== 设置程序主逻辑 ========== */
-static void SettingMain(void) {
+static void setting_main(void) {
     struct kernel_api *api = API;
     if (api->magic != 0xEF110001) return;   /* API 表无效, 直接返回 */
 

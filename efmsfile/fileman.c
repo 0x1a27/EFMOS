@@ -778,7 +778,7 @@ static void file_submenu(struct kernel_api *api, const char *path, const char *n
 }
 
 /* ========== 主函数 (GUI 协议版) ========== */
-static void FilemanMain(void) {
+static void fileman_main(void) {
     struct kernel_api *api = API;
     if (api->magic != 0xEF110001) return;
 
