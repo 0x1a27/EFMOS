@@ -735,7 +735,7 @@ static void dec_buf(char *out, int *pn, unsigned long v) {
     while (p--) out[(*pn)++] = tmp[p];
 }
 
-void drv_main(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
+void DrvMain(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
     if (!iface || iface->magic != DRV_IFACE_MAGIC) {
         if (iface) iface->log("[Graphics] bad iface magic\n");
         return;

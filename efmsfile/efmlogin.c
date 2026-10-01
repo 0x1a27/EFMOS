@@ -662,7 +662,7 @@ static int load_sys_lang(struct kernel_api *api) {
 }
 
 /* ========== 主菜单渲染与操作 ========== */
-static void efmlogin_main(void) {
+static void EfmloginMain(void) {
     struct kernel_api *api = API;
     if (api->magic != 0xEF110001) return;
 

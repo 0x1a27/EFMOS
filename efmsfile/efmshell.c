@@ -1115,7 +1115,7 @@ static void com1(char c) {
     );
 }
 
-void efmshell_main(void) {
+void EfmshellMain(void) {
     com1('M');   /* 探针: efmshell_main 已进入 */
     if (API->magic != 0xEF110001u) {
         com1('X');   /* 探针: magic 异常 (仍继续跑, 只警告) */

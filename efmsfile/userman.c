@@ -681,7 +681,7 @@ static void print_user_list(struct kernel_api *api, int zh) {
 }
 
 /* ========== 主菜单渲染与操作 ========== */
-static void userman_main(void) {
+static void UsermanMain(void) {
     struct kernel_api *api = API;
     if (api->magic != 0xEF110001) return;
 

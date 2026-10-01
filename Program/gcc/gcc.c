@@ -804,23 +804,23 @@ static int g_trace_n IN_DATA = 0;
  *   1. 0x48 可能是 imm32/displacement 的一部分 (不是 REX 前缀), 刚好跟着 Bx → 假匹配
  *   2. 跨指令边界读 8 字节 imm → 读到后一条指令的 RET/C3 / mov cl,B1 等字节拼垃圾值
  *   3. 即使 mod=0 不写回, i+=10 会推进错位, 漏过真实 movabs → rodata/data 地址不被修正
- * 新方案: 每次 emit_movi_imm64 时, 把 REX.W 字节在 g_text 中的偏移 (imm64 从偏移+2 开始)
+ * 新方案: 每次 EmitMoviImm64 时, 把 REX.W 字节在 g_text 中的偏移 (imm64 从偏移+2 开始)
  *   记录到 g_reloc_entries[]. 重定位只遍历这些偏移, 100% 精准, 无假匹配, 无漏掉.
- * 注意: exit stub 里手动写的 movabs rcx, slot_va 也必须手动登记 (emit_movi_imm64 不经过).
+ * 注意: exit stub 里手动写的 movabs rcx, slot_va 也必须手动登记 (EmitMoviImm64 不经过).
  * [诊断增强] 每个 entry 同时记录调用来源 tag: (tag<<24) | rex_off, tag 为 ASCII 字符, 用于区分谁 emit 的这条 movabs.
- *   标签约定: 'S'=emit_movi_imm64(符号加载, 通用), 'R'=字符串 rodata 加载 (parse_primary T_STR), 'E'=exit stub 手动登记 movabs,
+ *   标签约定: 'S'=EmitMoviImm64(符号加载, 通用), 'R'=字符串 rodata 加载 (parse_primary T_STR), 'E'=exit stub 手动登记 movabs,
  *            'P'=printf/libc stub 的 API slot 加载, 'X'=其他 builtin stubs.
  * [修复 imm=0 错判] imm==0 可能是 NULL literal (不应该加 base) 也可能是 BSS 偏移 0 符号 (应该加 base).
  *   解决: 当 imm==0 进入 [0, g_bss_len) 分支时, 额外验证: g_syms[] 中确实存在某个 BSS 变量的 addr (修正前)==0.
  *   如果不存在这样的符号, 说明 imm=0 是纯 literal (如 NULL / 立即数 0), 跳过不写回. */
 static int g_reloc_entries[1024] IN_DATA;
 static int g_reloc_n IN_DATA = 0;
-static void reloc_record_tag(int rex_offset, char tag) {
+static void RelocRecordTag(int rex_offset, char tag) {
     if (g_reloc_n >= 1024) return;
     int enc = ((int)(unsigned char)tag << 24) | (rex_offset & 0x00FFFFFF);
     g_reloc_entries[g_reloc_n++] = enc;
 }
-#define reloc_record(off) reloc_record_tag((off), 'S')
+#define reloc_record(off) RelocRecordTag((off), 'S')
 
 static void buf_emit(char **buf, int *n, int *c, const char *src, int len) {
     if (!buf || !n || !c) { dbg_com1('~'); return; }
@@ -932,9 +932,9 @@ static void emit_movi_imm32(int reg, int imm) {
  *
  *   但为了保守, 依然禁止 任何地址 (>= 1MB) 走 imm32 捷径, 避免将来加载地址 >= 2GB 时出 sign-extend 锅:
  *   只对真正的小整数字面量 (-2^30 <= imm < 2^30) 用 imm32; 任何 >= 1MB 值一律 imm64. */
-static void emit_movi_imm64(int reg, long imm) {
+static void EmitMoviImm64(int reg, long imm) {
     /* [关键修复] 已禁用 imm32 捷径 (原: -1GB..1GB 用 MOV imm32 sign-ext)
-     * 根因: emit_movi_imm64 的调用者绝大多数是地址 (字符串 rodata 偏移/全局 data+bss 偏移/符号 VA).
+     * 根因: EmitMoviImm64 的调用者绝大多数是地址 (字符串 rodata 偏移/全局 data+bss 偏移/符号 VA).
      *   - 地址在 codegen 时是 0-based 占位符 (0, 8, 16...), 这些占位符非常小, 原逻辑会走 imm32.
      *   - 但 relocation pass 只能识别 10-byte `movabs reg, imm64` (0x48 0xBx) 模式, 无法修改 7-byte imm32!
      *   - 导致字符串/全局变量指针永远不会被重定位 → 直接访问物理低地址 0x12 之类的错误地址.
@@ -1745,7 +1745,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
         /* rax = size; call API->malloc(rax) */
         emit_mov_rr(7, 0);                       /* rdi = size */
         /* thunk: call [API->malloc]  slot 24 → offset 24*8 = 192 */
-        emit_movi_imm64(0, 0x9000 + 24*8);      /* rax = &API->malloc (结构体 slot 24) */
+        EmitMoviImm64(0, 0x9000 + 24*8);      /* rax = &API->malloc (结构体 slot 24) */
         emit_mov_rm(0,0,0);                     /* rax = API->malloc */
         emit_callr(0);
         sm_push_r(0);
@@ -1753,7 +1753,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
         return r;
     }
     if (L_check(T_DELETE)) { L_next(); ExprRes a = parse_unary(rbp_stack_off); sm_pop_r(0); emit_mov_rr(7,0);
-        emit_movi_imm64(0,0x9000 + 25*8); emit_mov_rm(0,0,0); emit_callr(0);  /* API->free slot 25 */
+        EmitMoviImm64(0,0x9000 + 25*8); emit_mov_rm(0,0,0); emit_callr(0);  /* API->free slot 25 */
         emit_movi_imm32(0,0); sm_push_r(0); r.ty=t_int; r.val=PV_RVAL; return r; }
 
     if (L_check(T_NUM)) { int v=L.num; L_next(); emit_movi_imm32(0,v); sm_push_r(0); r.ty=t_int; r.val=PV_RVAL; return r; }
@@ -1761,7 +1761,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
         double v=L.fval; L_next();
         /* 把 double 位模式存到 rodata, 通过 mov rax,[addr] 加载位模式 */
         long va = rodata_putd(v);
-        emit_movi_imm64(0, va);     /* rax = &double_const */
+        EmitMoviImm64(0, va);     /* rax = &double_const */
         emit_mov_rm(0, 0, 0);       /* rax = *(double*)addr (8B 位模式) */
         sm_push_r(0);
         r.ty=t_double; r.val=PV_RVAL; return r;
@@ -1777,7 +1777,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
         concat[cl] = 0;
         int sl; long va = rodata_puts(concat, &sl);
         /* 用 'R' tag: 字符串加载 → 若 reloc 输出 R[] 则来源确认 */
-        reloc_record_tag(g_text_n, 'R');
+        RelocRecordTag(g_text_n, 'R');
         { int reg=0; long imm=va;
           emit_rex(1,0,0,reg);
           emit_b(0xB8 + (reg&7));
@@ -1939,7 +1939,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
             /* 作为普通函数; 若接下来是 (, 则需要 this */
             if (L_check(T_LPAREN)) { /* 这里不处理, 交给 parse_primary 后 parse_postfix 处理 func call; 但我们没有方法的 this 隐式传参. 为了简化: full name 被作为 SK_FUNC, 但它第一参是 this*, 使用时用户得手动 &obj 传入. 为了语法方便, 我们不做隐式 this, 用户得显式传 this */
             }
-            emit_movi_imm64(0, s->addr);
+            EmitMoviImm64(0, s->addr);
             sm_push_r(0); r.ty=s->type; r.val=PV_RVAL; return r;
         }
         Symbol *s = sym_find(nm, g_scope_depth);
@@ -1947,12 +1947,12 @@ static ExprRes parse_unary(int rbp_stack_off) {
         if (s->kind == SK_TYPE) g_panic("unexpected type as expr");
         if (s->kind == SK_FUNC) {
             /* 函数作为值: 函数地址 push */
-            emit_movi_imm64(0, s->addr);
+            EmitMoviImm64(0, s->addr);
             sm_push_r(0); r.ty = s->type; r.val = PV_RVAL; return r;
         }
         /* VAR: 计算地址 → push → LVAL */
         if (s->is_global) {
-            emit_movi_imm64(0, s->addr);
+            EmitMoviImm64(0, s->addr);
         } else {
             /* 局部: rbp - s->addr (s->addr 存的是偏移量正数) */
             emit_lea(0, 5, -(int)s->addr);  /* rbp = 5 */
@@ -2068,7 +2068,7 @@ static ExprRes parse_postfix(int rbp_stack_off) {
                 char full[256]; int n=0; int i=0; while(sty->sname[i]) full[n++]=sty->sname[i++]; full[n++]=':'; full[n++]=':'; i=0; while(f->name[i])full[n++]=f->name[i++]; full[n]=0;
                 Symbol *ms = sym_find_global(full); if (!ms) g_panic("method symbol missing");
                 sm_push_r(2);                          /* 栈顶: this */
-                emit_movi_imm64(0, ms->addr); sm_push_r(0); /* 栈顶: method addr */
+                EmitMoviImm64(0, ms->addr); sm_push_r(0); /* 栈顶: method addr */
                 /* 用 ExprRes.type 标记 method_of. 我们用 kind=TY_FUNC, base=返回类型, params[0] 第一个是 this*. 但我们已经 push 了 this. 在 parse_call 里我们需要不重复 push this. 所以设置一个标志: 通过 method_of 指针非空 指示 "栈已经自带 this 参数" */
                 op.ty = ms->type; /* TY_FUNC: params[0] 是 this* (Type* = struct*) */
                 /* 我们需要一种机制告知 parse_call 这是 method, 栈上还有 this.
@@ -3806,12 +3806,12 @@ static void generate_builtin_stubs(void) {
             /* puts(s) -> print(s); putchar('\n'); return 0; */
             dbg_com1('W');  /* puts 分支开始 */
             emit_push(7);                            dbg_com1('1');
-            emit_movi_imm64(0, 0x9000 + 2*8);       dbg_com1('2');  /* slot 2 = print */
+            EmitMoviImm64(0, 0x9000 + 2*8);       dbg_com1('2');  /* slot 2 = print */
             emit_mov_rm(0,0,0);                     dbg_com1('3');
             emit_callr(0);                          dbg_com1('4'); /* print 调用 */
             emit_pop(7);                             dbg_com1('5');
             emit_movi_imm32(7, '\n');               dbg_com1('6');
-            emit_movi_imm64(0, 0x9000 + 1*8);       dbg_com1('7');  /* slot 1 = put_char */
+            EmitMoviImm64(0, 0x9000 + 1*8);       dbg_com1('7');  /* slot 1 = put_char */
             emit_mov_rm(0,0,0);                     dbg_com1('8');
             emit_callr(0);                          dbg_com1('9'); /* putchar 调用 */
             emit_movi_imm32(0, 0);                  dbg_com1(':');
@@ -3823,7 +3823,7 @@ static void generate_builtin_stubs(void) {
             /* rdi = char; 调 put_char, 返回 eax = char */
             dbg_com1('Y');  /* putchar 分支开始 */
             emit_push(7);                            dbg_com1('<');
-            emit_movi_imm64(0, 0x9000 + 1*8);       dbg_com1('=');  /* slot 1 = put_char */
+            EmitMoviImm64(0, 0x9000 + 1*8);       dbg_com1('=');  /* slot 1 = put_char */
             emit_mov_rm(0,0,0);                     dbg_com1('>');
             emit_callr(0);                          dbg_com1('?');
             emit_pop(0);                             dbg_com1('@');  /* rax = char (ret) */
@@ -3834,7 +3834,7 @@ static void generate_builtin_stubs(void) {
         /* 默认分支: mov rax, [API->idx] ; jmp *rax 尾调用 */
         dbg_com1('p');  /* default: movi_imm64 之前 */
         emit_com1_trace('p');   /* 运行时: 进入 builtin stub (print/file_read/...) */
-        emit_movi_imm64(0, 0x9000L + (long)b->api_idx*8);
+        EmitMoviImm64(0, 0x9000L + (long)b->api_idx*8);
         dbg_com1('q');  /* movi_imm64 之后, mov_rm 之前 */
         emit_mov_rm(0,0,0);
         dbg_com1('r');  /* mov_rm 之后, jmp 之前 */
@@ -3867,7 +3867,7 @@ static void generate_builtin_stubs(void) {
          * 注意: 这里 imm64 = slot_va = va_text_base + offset, 已经是最终 VA (不需要再次重定位).
          *   但登记它能让诊断输出更完整; 重定位判断时若 imm 不在 [0, ro/data/bss_len) 范围内就会跳过.
          * [诊断 tag] 'E' = exit stub 手动登记 */
-        reloc_record_tag(g_text_n, 'E');
+        RelocRecordTag(g_text_n, 'E');
         /* emit_b(0x48); emit_b(0xB9); + 8 字节 imm */
         emit_b(0x48); emit_b(0xB9);
         for(int i=0;i<8;i++) emit_b((char)((g_exit_frame_slot>>(i*8))&0xFF));
@@ -3894,7 +3894,7 @@ static void generate_printf_stub(void) {
     s->defined=1; s->addr = va_text_base + g_text_n;
     /* rdi = fmt. 调 print(rdi). 然后 mov rax, 0; ret. */
     /* printf stub 的 API slot 加载: 用 tag 'P' */
-    reloc_record_tag(g_text_n, 'P');
+    RelocRecordTag(g_text_n, 'P');
     { int reg=0; long imm=0x9000 + 2*8;
       emit_rex(1,0,0,reg);
       emit_b(0xB8 + (reg&7));
@@ -5219,7 +5219,7 @@ static void patch_start_stub_refs(void) {
  *
  * 修复: 在 prolog 后面用 NOP (0x90) 填充到 prolog_reserve=64 字节, 确保
  *   final_bin[64] = original_text[0] → load_addr+64 = va_text_base 正确! */
-static char *build_binary(long *out_size) {
+static char *BuildBinary(long *out_size) {
     com1_raw('(');  /* build_binary: 查找 main (强制, 不受 g_debug 影响) */
     Symbol *mn = sym_find_global("main");
     if (!mn) { com1_raw('!'); com1_raw('m'); g_print("error: no main() function defined\n"); g_panic("no main"); }
@@ -5728,7 +5728,7 @@ static int do_compile(void) {
          *   读接下来 8 字节 → 跨指令边界拼出"imm64" = 随机垃圾, i+=10 推进错位 7 字节,
          *   后续真实 movabs 被漏过 → rodata/data 地址不重定位 → 低地址访问崩溃。
          *
-         * 新实现: 每次 emit_movi_imm64 在写入字节之前, 先把 REX.W 字节的 text 偏移
+         * 新实现: 每次 EmitMoviImm64 在写入字节之前, 先把 REX.W 字节的 text 偏移
          *   精确登记到 g_reloc_entries[]。exit stub 手动 emit 的 movabs 也手动登记.
          *   这样重定位循环只遍历这些"确认是 movabs reg64 imm64 开头"的位置,
          *   100% 精准匹配、不会漏、不会假阳性误匹配跨边界字节!
@@ -5838,7 +5838,7 @@ static int do_compile(void) {
     /* 6. Build binary */
     dbg_com1('6');  /* do_compile: build_binary */
     long bsz;
-    char *bin = build_binary(&bsz);
+    char *bin = BuildBinary(&bsz);
     dbg_com1('7');  /* do_compile: write_efs */
 
     /* 7. 写 .efs (12 字节头 + bin). prolog_reserve=64, 所以 binary 的实际入口 load_addr + 0 → prolog

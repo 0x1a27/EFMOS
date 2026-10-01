@@ -2663,7 +2663,7 @@ static void compositor_finalize_frame(int mx, int my, int mouse_visible,
     }
 }
 
-void compositor_main(void) {
+void CompositorMain(void) {
     /* [DEBUG] 直接写 COM1 串口, 不依赖 API, 确认 compositor_main 被进入 */
     cm_serial("CM:enter\n");
     if (API->magic != API_MAGIC) {
