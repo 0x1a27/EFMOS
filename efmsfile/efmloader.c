@@ -263,7 +263,7 @@ static void monitor_loop(void) {
     }
 }
 
-void efmloader_main(void) {
+void EfmloaderMain(void) {
     if (API->magic != API_MAGIC) {
         API->print("efmloader: bad api magic, abort.\n");
         return;

@@ -216,7 +216,7 @@ struct __efm_kernel_api {
 #define EFM_API_MAGIC  0xEF110001
 #define EFM_API_PTR    ((volatile struct __efm_kernel_api *const)0x9000UL)
 
-static inline int __efm_api_ok(void) {
+static inline int __EfmApiOk(void) {
     return (EFM_API_PTR->magic == EFM_API_MAGIC);
 }
 

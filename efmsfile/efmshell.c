@@ -36,12 +36,12 @@
  */
 
 /* ========== 内核 API 表 (与内核 struct kernel_api 严格匹配) ========== */
-struct efs_dirent {
+struct EfsDirent {
     char name[64];
     unsigned int size;
     unsigned int is_dir;
 };
-struct kernel_api {
+struct KernelApi {
     unsigned int magic;
     unsigned int _pad;
     void (*put_char)(char);
@@ -106,7 +106,7 @@ struct kernel_api {
     int  (*read_text)(char *buf, int max);
     int  (*fsop)(const char *op, const char *a, const char *b, char *out, int outsz);
 };
-#define API ((struct kernel_api*)0x9000)
+#define API ((struct KernelApi*)0x9000)
 
 /* ========== Logo 像素数据 (gen_logo.py 生成, 128x128, RLE) ========== */
 #include "logo.h"

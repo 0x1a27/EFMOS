@@ -73,7 +73,7 @@
 #include "ttf_font.c"
 
 /* ==================== 1. 全局状态 ==================== */
-static struct drv_gop_fb g_fb;
+static struct DrvGopFb g_fb;
 static int  g_initialized = 0;
 
 /* --- 双缓冲 --- */
@@ -193,7 +193,7 @@ static const unsigned char g_font8x16[96][16] = {
 void drv_main(struct drv_kernel_if *iface, struct drv_gop_fb *fb);
 
 __attribute__((naked, section(".text.start")))
-void drv_entry(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
+void drv_entry(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
     __asm__ volatile(
         "push %rbp\n\t"
         "mov %rsp, %rbp\n\t"
@@ -221,7 +221,7 @@ static inline unsigned int bb_px_u32(unsigned int r, unsigned int g, unsigned in
 }
 
 /* ---------------- 脏区标记 + flush ---------------- */
-static void gfx_dirty_mark(int x1, int y1, int x2, int y2) {
+static void GfxDirtyMark(int x1, int y1, int x2, int y2) {
     if (!g_initialized) return;
     if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
     if (y1 > y2) { int t = y1; y1 = y2; y2 = t; }
@@ -247,7 +247,7 @@ static inline void gfx_sse2_copy_row(unsigned int *dst, const unsigned int *src,
     if (w & 1) dst[w - 1] = src[w - 1];
 }
 
-static void gfx_flush_now(void) {
+static void GfxFlushNow(void) {
     if (!g_dirty || !g_back || !g_initialized || !g_fb.fb_base) return;
     int h = g_dy2 - g_dy1 + 1;
     int w = g_dx2 - g_dx1 + 1;
@@ -265,7 +265,7 @@ static void gfx_flush_now(void) {
  * 用于 WM 模式下: flush 之后鼠标单独画到 front, 当鼠标位置变更时, 先调用此函数
  * 把 front 上 "旧鼠标 16x16 区域" 用 back buffer(干净的桌面/窗口像素) 覆盖 →
  * 彻底消除旧鼠标箭头残影。参数与 fill_rect fill_rect(x,y,w,h) 相同 (x,y 左上 inclusive). */
-static void gfx_copy_back_rect_to_front(int x, int y, int w, int h) {
+static void GfxCopyBackRectToFront(int x, int y, int w, int h) {
     if (!g_back || !g_initialized || !g_fb.fb_base || w <= 0 || h <= 0) return;
     /* clip 到屏幕范围 */
     int x1 = x, y1 = y, x2 = x + w - 1, y2 = y + h - 1;
@@ -292,10 +292,10 @@ static void gfx_copy_back_rect_to_front(int x, int y, int w, int h) {
  *   w, h:         要拷贝的宽高 (像素)
  *   src:          源像素缓冲区 (32-bit BGRA/RGBA, 与 GOP 格式一致)
  *   src_pitch:    源每行字节数 (通常 = w * 4) */
-static void gfx_blit_buffer(int dst_x, int dst_y, int w, int h,
+static void GfxBlitBuffer(int dst_x, int dst_y, int w, int h,
                             const void *src, int src_pitch) {
     if (!g_back || !g_initialized || !src || w <= 0 || h <= 0) return;
-    struct drv_gop_fb *fb = &g_fb;
+    struct DrvGopFb *fb = &g_fb;
     /* clip 到屏幕范围 */
     int x1 = dst_x, y1 = dst_y;
     int x2 = dst_x + w - 1, y2 = dst_y + h - 1;
@@ -352,7 +352,7 @@ static inline unsigned int bb_read_u32(int x, int y) {
 }
 
 /* ==================== 3. ops: put_pixel + alpha ==================== */
-static void gfx_put_pixel(int x, int y, unsigned int c) {
+static void GfxPutPixel(int x, int y, unsigned int c) {
     if (!g_initialized || !g_back) return;
     if (x<0 || y<0) return;
     if ((unsigned int)x >= g_fb.hr || (unsigned int)y >= g_fb.vr) return;
@@ -362,7 +362,7 @@ static void gfx_put_pixel(int x, int y, unsigned int c) {
 }
 
 /* 带 alpha 的 put_pixel (内部辅助, 给 AA 字体用) */
-static void gfx_put_pixel_blend(int x, int y, unsigned int r, unsigned int g, unsigned int b, unsigned int a) {
+static void GfxPutPixelBlend(int x, int y, unsigned int r, unsigned int g, unsigned int b, unsigned int a) {
     if (!g_initialized || !g_back) return;
     if (x<0 || y<0) return;
     if ((unsigned int)x >= g_fb.hr || (unsigned int)y >= g_fb.vr) return;
@@ -373,7 +373,7 @@ static void gfx_put_pixel_blend(int x, int y, unsigned int r, unsigned int g, un
 }
 
 /* ==================== 4. ops: fill_rect (含渐变入口) ==================== */
-static void gfx_fill_rect(int x1, int y1, int x2, int y2, unsigned int c) {
+static void GfxFillRect(int x1, int y1, int x2, int y2, unsigned int c) {
     if (!g_initialized || !g_back) return;
     if (x1>x2) { int t=x1; x1=x2; x2=t; }
     if (y1>y2) { int t=y1; y1=y2; y2=t; }
@@ -435,7 +435,7 @@ static void gfx_fill_gradient(int x1, int y1, int x2, int y2,
  * 但为了与内核 fallback 保持同样的字符尺寸占位 (8x16 字符单元), 我们改回:
  *   - "1 逻辑字形像素" 对应 "1 物理像素", 但我们对"边缘"位置用 4 邻居采样
  *     得到 4 级灰度 (0, 1/4, 1/2, 1) 作为 alpha. */
-static void gfx_draw_char_8x16(int x, int y, char c_raw, unsigned int fg, unsigned int bg) {
+static void GfxDrawChar8x16(int x, int y, char c_raw, unsigned int fg, unsigned int bg) {
     if (!g_initialized || !g_back) return;
     unsigned int fr = (fg>>16)&0xFF, fg_ = (fg>>8)&0xFF, fb = fg&0xFF;
     unsigned int br = (bg>>16)&0xFF, bg_ = (bg>>8)&0xFF, bb_ = bg&0xFF;
@@ -659,7 +659,7 @@ static void gfx_get_mode(unsigned int *out_hr, unsigned int *out_vr,
 
 /* [优化] 暴露 back buffer, 让 Mesa swrast 直接渲染到 back buffer,
  * 消除 BO→back buffer 全屏拷贝 (节省 8MB/帧 @1080p). */
-static int gfx_get_backbuffer(void **out_ptr, int *out_pitch, int *out_w, int *out_h) {
+static int GfxGetBackbuffer(void **out_ptr, int *out_pitch, int *out_w, int *out_h) {
     if (!g_back || !g_initialized) return -1;
     if (out_ptr)   *out_ptr   = g_back;
     if (out_pitch) *out_pitch = (int)g_pitch_b;  /* bytes/line for Mesa/GBM convention */
@@ -735,7 +735,7 @@ static void dec_buf(char *out, int *pn, unsigned long v) {
     while (p--) out[(*pn)++] = tmp[p];
 }
 
-void drv_main(struct drv_kernel_if *iface, struct drv_gop_fb *fb) {
+void drv_main(struct drv_kernel_if *iface, struct DrvGopFb *fb) {
     if (!iface || iface->magic != DRV_IFACE_MAGIC) {
         if (iface) iface->log("[Graphics] bad iface magic\n");
         return;

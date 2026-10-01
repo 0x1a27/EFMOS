@@ -41,12 +41,12 @@
 #  error "kernel.c must NOT be compiled as PIE. Add -fno-pic -no-pie"
 #endif
 
-struct gdt_entry { unsigned short limit_low, base_low; unsigned char base_mid, access, granularity, base_high; } __attribute__((packed));
-struct gdt_ptr { unsigned short limit; unsigned long long base; } __attribute__((packed));
-struct idt_entry { unsigned short offset_low, selector; unsigned char ist, flags; unsigned short offset_mid; unsigned int offset_high, zero; } __attribute__((packed));
-struct idt_ptr { unsigned short limit; unsigned long long base; } __attribute__((packed));
-struct gop_fb { unsigned long long fb_base; unsigned int hr, vr, ppsl; } __attribute__((packed));
-struct file_entry { char path[64]; unsigned int size; unsigned int offset; unsigned int type; };
+struct GdtEntry { unsigned short limit_low, base_low; unsigned char base_mid, access, granularity, base_high; } __attribute__((packed));
+struct GdtPtr { unsigned short limit; unsigned long long base; } __attribute__((packed));
+struct IdtEntry { unsigned short offset_low, selector; unsigned char ist, flags; unsigned short offset_mid; unsigned int offset_high, zero; } __attribute__((packed));
+struct IdtPtr { unsigned short limit; unsigned long long base; } __attribute__((packed));
+struct GopFb { unsigned long long fb_base; unsigned int hr, vr, ppsl; } __attribute__((packed));
+struct FileEntry { char path[64]; unsigned int size; unsigned int offset; unsigned int type; };
 
 /* 字体尺寸: 必须与 efmcompositor.c 的 TTF_FONT_W/TTF_FONT_H 一致.
  * 之前内核用 10x18 而 compositor 用 12x22, 导致窗口尺寸/光标位置/任务栏高度
@@ -116,8 +116,8 @@ struct file_entry { char path[64]; unsigned int size; unsigned int offset; unsig
 /* bootlogo.h: 用户上传的系统图标 (200x200 alpha 灰度图, 0=透明, 255=不透明白) */
 #include "bootlogo.h"
 
-static struct gdt_entry gdt[7]; static struct gdt_ptr gdt_ptr;
-static struct idt_entry idt[256]; static struct idt_ptr idt_ptr;
+static struct gdt_entry gdt[7]; static struct GdtPtr gdt_ptr;
+static struct idt_entry idt[256]; static struct IdtPtr idt_ptr;
 
 /* [EFS 恢复机制] 当用户程序调用 exit() 时会触发 int 0x3 (#DB 异常),
  * 异常处理器检测到后通过这些全局变量恢复内核状态 */
@@ -8508,7 +8508,7 @@ efs_return_point:
 static int run_efs(const char *name) { return run_efs_ex(name, 0); }
 
 /* ========== GDT / IDT ========== */
-static void set_gdt_entry(int num, unsigned int base, unsigned int limit, unsigned char access, unsigned char gran) {
+static void SetGdtEntry(int num, unsigned int base, unsigned int limit, unsigned char access, unsigned char gran) {
     gdt[num].base_low = base & 0xFFFF;
     gdt[num].base_mid = (base >> 16) & 0xFF;
     gdt[num].base_high = (base >> 24) & 0xFF;
@@ -8710,7 +8710,7 @@ __attribute__((noreturn)) static void exception_handler(void) {
     print_string(TR("Exception! Halted.\n","发生异常! 系统已停止。\n"));
     while (1) asm volatile("hlt");
 }
-static void load_gdt(void) {
+static void LoadGdt(void) {
     gdt_ptr.limit = sizeof(gdt) - 1;
     gdt_ptr.base = (unsigned long long)&gdt;
     asm volatile("lgdt %0" : : "m"(gdt_ptr));
@@ -8722,7 +8722,7 @@ static void load_idt(void) {
     idt_ptr.base = (unsigned long long)&idt;
     asm volatile("lidt %0" : : "m"(idt_ptr));
 }
-static void init_gdt(void) {
+static void InitGdt(void) {
     set_gdt_entry(0, 0, 0, 0, 0);
     set_gdt_entry(1, 0, 0xFFFFFFFF, 0x9A, 0xAF);
     set_gdt_entry(2, 0, 0xFFFFFFFF, 0x92, 0xAF);
@@ -10921,7 +10921,7 @@ static int key_eq(const char *a, int al, const char *b, int bl) {
     return 1;
 }
 
-void kmain(void) {
+void Kmain(void) {
     serial_write("\nEFMOS Kernel\n");
     init_gdt(); load_gdt(); serial_write("GDT OK\n");
     init_idt(); load_idt(); serial_write("IDT OK\n");
