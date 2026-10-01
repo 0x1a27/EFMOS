@@ -7,7 +7,7 @@
 *.drv
 *.tmp_head
 bootloader/BOOTX64.EFI
-kernel/kernel.elf
+kernel/efmkernel.elf
 
 # ========== Disk Images & ISO (磁盘镜像与安装ISO, 不开源) ==========
 *.iso

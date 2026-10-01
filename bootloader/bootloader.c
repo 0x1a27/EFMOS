@@ -431,7 +431,7 @@ typedef struct { UINT8 id[16]; UINT16 type, machine; UINT32 ver; UINT64 entry, p
 typedef struct { UINT32 type, flags; UINT64 offset, vaddr, paddr, filesz, memsz, align; } Elf64_Phdr;
 #define PT_LOAD 1
 /* [修复] 完整读取 inode 指向的文件数据到 buf。
- * 原 bootloader 仅读取 i_block[0..11] 直接块 (4K 块时仅 48KB), kernel.elf
+ * 原 bootloader 仅读取 i_block[0..11] 直接块 (4K 块时仅 48KB), efmkernel.elf
  * 超出后读取的是间接指针/磁盘垃圾, 导致加载的内核高位代码 (含 kmain) 残缺,
  * 跳转到 entry(kmain) 时执行垃圾指令 -> #UD/#PF 崩溃。
  * 本函数按逻辑块号正确映射物理块, 支持:
@@ -693,7 +693,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
         return EFI_UNSUPPORTED;
     }
 
-    /* ---------- Step 4: 定位 /EFMOS/kernel.elf ---------- */
+    /* ---------- Step 4: 定位 /EFMOS/efmkernel.elf ---------- */
     boot_progress(45, L"Locating kernel image");
     UINT32 efinode=0, kerninode=0;
     status = find_in_dir(2, "EFMOS", &efinode);
@@ -701,17 +701,17 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE img, EFI_SYSTEM_TABLE *sys) {
         boot_progress(100, L"ERROR: No /EFMOS directory");
         print(L"No /EFMOS\r\n"); return EFI_NOT_FOUND;
     }
-    status = find_in_dir(efinode, "kernel.elf", &kerninode);
+    status = find_in_dir(efinode, "efmkernel.elf", &kerninode);
     if(EFI_ERROR(status)) {
-        boot_progress(100, L"ERROR: kernel.elf missing");
-        print(L"No kernel.elf\r\n"); return EFI_NOT_FOUND;
+        boot_progress(100, L"ERROR: efmkernel.elf missing");
+        print(L"No efmkernel.elf\r\n"); return EFI_NOT_FOUND;
     }
 
     /* ---------- Step 5: 读取内核文件并解析 ELF ---------- */
-    boot_progress(60, L"Loading kernel.elf");
+    boot_progress(60, L"Loading efmkernel.elf");
     UINT8 kern_inode[256]; read_inode(kerninode, kern_inode);
     UINT32 fsize = *(UINT32*)(kern_inode+4);
-    /* [修复] 同上: kernel.elf 大小 (242600) 不是 4096 的整数倍,
+    /* [修复] 同上: efmkernel.elf 大小 (242600) 不是 4096 的整数倍,
      * 60 块 x 4096 = 245760 字节, 会越界写 3160 字节, 直接导致
      * 随后的 FreePool(kern_buf) 挂死 —— 这就是启动卡在
      * "Linking ELF segments" 之后不动的原因。 */

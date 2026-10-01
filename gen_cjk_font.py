@@ -71,7 +71,7 @@ def generate_with_pil():
     # (覆盖内核 + 所有 .efs 程序的 print_utf8 字符串), 确保字体
     # 覆盖每一个可能显示的字符 (如 "登录" 的 "登" 等)。
     SOURCE_FILES = [
-        "kernel/kernel.c",
+        "kernel/efmkernel.c",
         "efmsfile/userman.c",
         "efmsfile/efmlogin.c",
         "efmsfile/setting.c",

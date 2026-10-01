@@ -47,79 +47,8 @@
 /* ========== 内核 API 表 (必须与 struct kernel_api 字段顺序/对齐完全一致) ==========
  * 注意: 2026+ 新增 load_driver / driver_count / driver_list / sleep_ms 等 API
  *       必须严格匹配 kernel.c 中的顺序! */
-struct efs_dirent {
-    char name[64];
-    unsigned int size;
-    unsigned int is_dir;
-};
-struct kernel_api {
-    unsigned int magic;
-    unsigned int _pad;
-    void (*put_char)(char);
-    void (*print)(const char*);
-    void (*print_utf8)(const char*);
-    void (*clear_screen)(void);
-    int (*file_read)(const char*, char*, int);
-    int (*file_write)(const char*, const char*, int);
-    int (*file_exists)(const char*);
-    int (*mkdir)(const char*);
-    int (*readline)(char*, int);
-    void (*reboot)(void);
-    int (*get_lang)(void);
-    void (*set_lang)(int);
-    int (*save_settings)(void);
-    int  (*mouse_poll)(void *out_event);
-    void (*mouse_set_cursor)(int show);
-    int  (*file_list)(const char *dir_path, struct efs_dirent *out, int max_count);
-    int  (*file_delete)(const char *path);
-    int  (*key_poll)(void);
-    /* ========== 用户系统 API ========== */
-    int  (*get_current_user)(char *buf, int bufsz);
-    int  (*set_current_user)(const char *username);
-    int  (*user_list)(struct efs_dirent *out, int max_count);
-    int  (*user_create)(const char *username);
-    int  (*user_delete)(const char *username);
-    /* ========== 扩展 API ========== */
-    void *(*malloc)(unsigned long);
-    void  (*free)(void*);
-    int   (*spawn)(const char *name, const char *args);
-    int   (*get_args)(char *buf, int max);
-    /* 字体像素尺寸 */
-    int font_w;
-    int font_h;
-    /* 2025+ 窗口系统 */
-    int current_pid;
-    int wm_enabled;
-    void (*put_pixel)(int x, int y, unsigned int c);
-    void (*fill_rect)(int x1, int y1, int x2, int y2, unsigned int c);
-    void (*draw_rect)(int x1, int y1, int x2, int y2, unsigned int border, unsigned int fill);
-    void (*get_viewport)(int *cx, int *cy, int *cw, int *ch);
-    void (*get_fb_info)(unsigned int *hr, unsigned int *vr, unsigned int *ppsl, unsigned int **fb_base);
-    int  (*blit_to_window)(const void *src, int src_w, int src_h, int src_pitch);
-    /* ========== 2026+ 驱动子系统 API ========== */
-    int   (*load_driver)(const char *path);
-    int   (*driver_count)(void);
-    int   (*driver_list)(char out_names[][32], int max);
-    /* ========== 2026+ 多线程调度 API ========== */
-    void  (*sleep_ms)(unsigned long ms);
-    void  (*yield)(void);
-    int   (*get_pid)(void);
-    int   (*spawn_async)(const char *name, const char *args);
-    int   (*set_priority)(int pid, int nice);
-    /* ========== 2026+ Mesa 合成器 API ========== */
-    int   (*get_wm_snapshot)(void *out, int max_bytes);
-    void  (*set_compositor_active)(int active);
-    void *(*dlsym)(const char *name);
-    int   (*get_backbuffer)(void **out_ptr, int *out_pitch, int *out_w, int *out_h);
-    void  (*mark_dirty_rect)(int x1, int y1, int x2, int y2);
-    void  (*flush_now)(void);
-    int   (*draw_char_unicode)(int x, int y, unsigned int codepoint,
-                               unsigned int fg, unsigned int bg, int cell_w, int cell_h);
-    void  (*set_gfx_info)(void *info);
-};
+#include "efmos/efm_api.h"
 
-#define API_MAGIC  0xEF110001
-#define API        ((volatile struct kernel_api*)0x9000)
 
 /* ========== 语言 (efmloader 使用极简 i18n: 英文 + 中文, 跟随内核 get_lang) ==========
  * 0 = English, 1 = 简体中文 (与内核 efm_lang 编码一致) */

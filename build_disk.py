@@ -347,7 +347,7 @@ def main():
     print("Writing files to ext4...")
     files_to_write = [
         ('EFMOS', 'dir', None),
-        ('EFMOS/kernel.elf', 'write', f'{src}/kernel/kernel.elf'),
+        ('EFMOS/efmkernel.elf', 'write', f'{src}/kernel/efmkernel.elf'),
         ('EFMOS/fileman.efs', 'write', f'{src}/efmsfile/fileman.efs'),
         ('EFMOS/setting.efs', 'write', f'{src}/efmsfile/setting.efs'),
         ('EFMOS/userman.efs', 'write', f'{src}/efmsfile/userman.efs'),
@@ -362,12 +362,12 @@ def main():
         ('EFMOS/fonts', 'dir', None),
         ('EFMOS/fonts/sarasa-gothic-regular.ttf', 'write', f'{src}/fonts/sarasa-gothic-regular.ttf'),
         ('Program', 'dir', None),
-        ('Program/gcc', 'dir', None),
-        ('Program/gcc/gcc.efs', 'write', f'{src}/Program/gcc/gcc.efs'),
-        ('Program/gcc/gcc_test.c',  'write', f'{src}/Program/gcc/gcc_test.c'),
-        ('Program/gcc/gcc_min.c',   'write', f'{src}/Program/gcc/gcc_min.c'),
-        ('Program/gcc/gcc_float.c', 'write', f'{src}/Program/gcc/gcc_float.c'),
-        ('Program/gcc/gcc_sa.c',    'write', f'{src}/Program/gcc/gcc_sa.c'),
+        ('Program/efcc', 'dir', None),
+        ('Program/efcc/efcc.efs', 'write', f'{src}/Program/efcc/efcc.efs'),
+        ('Program/efcc/efcc_test.c',  'write', f'{src}/Program/efcc/efcc_test.c'),
+        ('Program/efcc/efcc_min.c',   'write', f'{src}/Program/efcc/efcc_min.c'),
+        ('Program/efcc/efcc_float.c', 'write', f'{src}/Program/efcc/efcc_float.c'),
+        ('Program/efcc/efcc_sa.c',    'write', f'{src}/Program/efcc/efcc_sa.c'),
     ]
     cmds = []
     for path, op, src_file in files_to_write:

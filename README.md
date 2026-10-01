@@ -7,7 +7,7 @@
 ## 特性
 
 ### 内核
-- **单文件内核** (`kernel/kernel.c`)，约 11,000+ 行 C 代码
+- **单文件内核** (`kernel/efmkernel.c`)，约 11,000+ 行 C 代码
 - UEFI 引导，ELF 内核加载
 - GDT/IDT/SSE/SYSCALL 指令支持
 - LAPIC 定时器（MASKED 轮询模式，无 IRQ 抢占）
@@ -37,14 +37,14 @@
 ### 图形栈
 - TTF 字体引擎（Sarasa Gothic，支持 ASCII + CJK 混排）
 - Mesa/OpenGL 兼容层（`lib/` 目录，libc + libdrm + EGL + GBM 适配层）
-- GCC 编译器移植（`Program/gcc/`）
+- 内置 C/C++ 子集编译器 efcc（`Program/efcc/`）
 
 ## 目录结构
 
 ```
 EFMOS/
 ├── bootloader/        # UEFI 引导加载器 (bootloader.c → BOOTX64.EFI)
-├── kernel/            # 操作系统内核 (kernel.c, link.ld)
+├── kernel/            # 操作系统内核 (efmkernel.c, link.ld)
 ├── drivers/            # 内核驱动 (.drv 格式, 热加载)
 │   ├── ahci_drv.c      #   AHCI SATA 磁盘驱动
 │   ├── graphics_drv.c  #   图形驱动 (TTF + 双缓冲)
@@ -61,7 +61,7 @@ EFMOS/
 │   ├── efmlogin.c      #   登录程序
 │   ├── ttf_font.c/h    #   TTF 字体引擎
 │   └── logo.h          #   启动 Logo 位图
-├── Program/gcc/       # GCC 编译器移植
+├── Program/efcc/      # 内置 C/C++ 子集编译器 (efcc)
 ├── lib/               # Mesa 兼容层 (libc/libdrm/EGL/GBM)
 │   ├── include/        #   系统头文件
 │   ├── pkgconfig/      #   pkg-config 模板
@@ -125,7 +125,7 @@ qemu-system-x86_64 -m 1024M -bios OVMF.fd -serial stdio -M q35 \
 ### 3. 单独构建组件
 
 ```bash
-make kernel/kernel.elf     # 仅内核
+make kernel/efmkernel.elf  # 仅内核
 make bootloader/BOOTX64.EFI  # 仅引导加载器
 make efmsfile/efmshell.efs   # 仅 Shell
 make drivers/Graphics.drv    # 仅图形驱动
@@ -167,7 +167,7 @@ EFS 程序是扁平二进制文件，前 12 字节为头：
 
 ## 许可证
 
-EFMOS 自研代码（内核、引导加载器、驱动、EFS 程序、Mesa 兼容层 `lib/`、内置编译器 `Program/gcc/`、构建脚本等）采用 **GNU General Public License v3.0**（GPLv3）发布，完整许可证文本见 [LICENSE](LICENSE)。
+EFMOS 自研代码（内核、引导加载器、驱动、EFS 程序、Mesa 兼容层 `lib/`、内置编译器 `Program/efcc/`、构建脚本等）采用 **GNU General Public License v3.0**（GPLv3）发布，完整许可证文本见 [LICENSE](LICENSE)。
 
 Copyright (C) 2026 0x1a27
 

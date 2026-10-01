@@ -20,10 +20,10 @@
  */
 
 /* =========================================================================
- * EFMOS gcc - 自包含 C/C++ 子集编译器 (flat binary → .efs)
- * 加载地址: 0x400000 (4MB, 避免与其他程序冲突)
+ * EFMOS efcc - 自包含 C/C++ 子集编译器 (flat binary → .efs)
+ * 加载地址: 0x700000 (7MB, 避免与其他程序冲突)
  *
- * 用法: gcc <src.c|.cpp> -o <out.efs> [-On]
+ * 用法: efcc <src.c|.cpp> -o <out.efs> [-On]
  *  - 读入源文件 (内核 file_read), 直接生成 x86_64 机器码 flat binary,
  *    在文件头加 12 字节 EFS 头 (load_addr LE + bin_size BE), 写入 <out.efs>
  *  - 产出的 .efs 可由 EFMOS 内核 run_efs() 直接加载运行
@@ -46,7 +46,7 @@
 #endif
 
 /* [BSS 崩溃修复] 宏: 声明变量放到 .data 段 (避免零初始化被丢到 .bss)
- *   .bss 起始地址 0x7100e0, 但 objcopy 抽取的 gcc.bin 只覆盖到 0x7100d4。
+ *   .bss 起始地址 0x7100e0, 但 objcopy 抽取的 efcc.bin 只覆盖到 0x7100d4。
  *   若变量落在 .bss, 内核加载后仍为随机物理内存垃圾 → g_realloc(垃圾指针, ...) 崩溃。
  *   解决: 用 __attribute__((section(".data"))) 强制零初始化变量进 .data。
  *   用法: static int x IN_DATA = 0;
@@ -55,88 +55,22 @@
 #define IN_DATA  __attribute__((section(".data")))
 
 /* ========== 内核 API 表 (必须与内核 struct kernel_api 字段顺序/对齐完全一致) ========== */
-struct efs_dirent { char name[64]; unsigned int size; unsigned int is_dir; };
-struct kernel_api {
-    unsigned int magic;
-    unsigned int _pad;
-    void (*put_char)(char);
-    void (*print)(const char*);
-    void (*print_utf8)(const char*);
-    void (*clear_screen)(void);
-    int  (*file_read)(const char*, char*, int);
-    int  (*file_write)(const char*, const char*, int);
-    int  (*file_exists)(const char*);
-    int  (*mkdir)(const char*);
-    int  (*readline)(char*, int);
-    void (*reboot)(void);
-    int  (*get_lang)(void);
-    void (*set_lang)(int);
-    int  (*save_settings)(void);
-    int  (*mouse_poll)(void *out_event);
-    void (*mouse_set_cursor)(int show);
-    int  (*file_list)(const char *dir_path, struct efs_dirent *out, int max_count);
-    int  (*file_delete)(const char *path);
-    int  (*key_poll)(void);
-    int  (*get_current_user)(char *buf, int bufsz);
-    int  (*set_current_user)(const char *username);
-    int  (*user_list)(struct efs_dirent *out, int max_count);
-    int  (*user_create)(const char *username);
-    int  (*user_delete)(const char *username);
-    void *(*malloc)(unsigned long);
-    void  (*free)(void*);
-    int   (*spawn)(const char *name, const char *args);
-    int   (*get_args)(char *buf, int max);
-    /* 2024+ 扩展: 字体像素尺寸 */
-    int font_w;
-    int font_h;
-    /* 2025+ 窗口系统 */
-    int current_pid;
-    int wm_enabled;
-    void (*put_pixel)(int x, int y, unsigned int c);
-    void (*fill_rect)(int x1, int y1, int x2, int y2, unsigned int c);
-    void (*draw_rect)(int x1, int y1, int x2, int y2, unsigned int border, unsigned int fill);
-    void (*get_viewport)(int *cx, int *cy, int *cw, int *ch);
-    void (*get_fb_info)(unsigned int *hr, unsigned int *vr, unsigned int *ppsl, unsigned int **fb_base);
-    int  (*blit_to_window)(const void *src, int src_w, int src_h, int src_pitch);
-    /* 2026+ 驱动子系统 API */
-    int   (*load_driver)(const char *path);
-    int   (*driver_count)(void);
-    int   (*driver_list)(char out_names[][32], int max);
-    /* 2026+ 多线程调度 API */
-    void  (*sleep_ms)(unsigned long ms);
-    void  (*yield)(void);
-    int   (*get_pid)(void);
-    int   (*spawn_async)(const char *name, const char *args);
-    int   (*set_priority)(int pid, int nice);
-    /* 2026+ Mesa 合成器 API */
-    int   (*get_wm_snapshot)(void *out, int max_bytes);
-    void  (*set_compositor_active)(int active);
-    void *(*dlsym)(const char *name);
-    int   (*get_backbuffer)(void **out_ptr, int *out_pitch, int *out_w, int *out_h);
-    void  (*mark_dirty_rect)(int x1, int y1, int x2, int y2);
-    void  (*flush_now)(void);
-    /* 2026+ TTF Unicode 字符渲染 */
-    int   (*draw_char_unicode)(int x, int y, unsigned int codepoint,
-                               unsigned int fg, unsigned int bg, int cell_w, int cell_h);
-    /* 新架构: EFS GUI 渲染信息提交 */
-    void  (*set_gfx_info)(void *info);
-};
-#define API ((struct kernel_api*)0x9000)
+#include "efmos/efm_api.h"
 
-/* ========== gcc_main 前向声明 + 入口点 _start (.text.start 保证首字节) ==========
+/* ========== efcc_main 前向声明 + 入口点 _start (.text.start 保证首字节) ==========
  * 内核 run_efs() 跳转到加载地址 (0x700000) 即 _start。
  * [入口对齐] section(".text.start") + efm_flat.ld 强制 _start 排 .text 最前。
- * [used 属性] gcc_main 只被 naked 函数内联汇编 call 引用, GCC -O2 不识别该
- *   引用 → dead code elimination 删掉 gcc_main 定义 → ld 报 undefined。
+ * [used 属性] efcc_main 只被 naked 函数内联汇编 call 引用, GCC -O2 不识别该
+ *   引用 → dead code elimination 删掉 efcc_main 定义 → ld 报 undefined。
  *   __attribute__((used)) 阻止 GCC 消除。
- * [关键修复] 调用 gcc_main 之前必须清零 .bss 段:
- *   objcopy 抽取 gcc.bin 时只带 -j .text/.rodata/.data, .bss 内容不会写入磁盘。
+ * [关键修复] 调用 efcc_main 之前必须清零 .bss 段:
+ *   objcopy 抽取 efcc.bin 时只带 -j .text/.rodata/.data, .bss 内容不会写入磁盘。
  *   内核 run_efs() 也不会清零 (它只负责 read_file_range 把 N 字节复制到 load_addr)。
  *   因此 __bss_start 到 _end 的字节如果不清零, 所有 "未初始化 / ={0} 零初始化"
  *   全局/静态变量 (包括 IN_DATA 未显式初始化被 GCC 偷偷降级到 BSS 的那些) 都会是
  *   该物理页上一次使用遗留下来的随机垃圾 → 指针解引用立刻触发 #PF/#GP → 系统死机。 */
 __attribute__((used))
-int gcc_main(void);
+int efcc_main(void);
 /* 链接器 (ld -T efm_flat.ld) 自动定义这两个符号, 圈出 .bss 区范围 */
 extern unsigned char __bss_start[];
 extern unsigned char _end[];
@@ -157,7 +91,7 @@ void _start(void) {
         ".Lbss_done:\n\t"
         /* ---- 调用主函数 (返回值留在 rax, 内核 trampoline 当退出码) ---- */
         "xor  %%eax, %%eax\n\t"
-        "call gcc_main\n\t"
+        "call efcc_main\n\t"
         "leave\n\t"
         "ret\n\t"
         : : : "memory", "rdi", "rcx", "rax", "cc"
@@ -763,7 +697,7 @@ static Field *struct_find_field(Type *st, const char *fname) {
 
 /* ========== 代码生成器: 字节流缓冲区 (text + rodata + data + bss 段)
  * [关键修复 BSS 未清零导致崩溃]
- *   EFMOS 通过 objcopy 抽 .text/.rodata/.data → bin 不包含 .bss。内核加载 gcc.bin 到 VA,
+ *   EFMOS 通过 objcopy 抽 .text/.rodata/.data → bin 不包含 .bss。内核加载 efcc.bin 到 VA,
  *   如果 bin 范围没覆盖 .bss → .bss 内容为物理内存上的随机垃圾。
  *   双保险: (a) _start 启动时 rep stosb 清零 [__bss_start, _end);
  *          (b) 全部全局显式初始化 (=0/=NULL/={0}) 并 IN_DATA 强制 .data 写入 bin。 */
@@ -1355,7 +1289,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
     if (L_check(T_AMP)) { /* &x: 左值取址 → 栈顶放地址 */
         L_next();
         ExprRes op = parse_unary(rbp_stack_off);
-        if (op.val == PV_RVAL) { g_print("gcc: '&' requires lvalue at line "); g_print_int(L.line); g_print("\n"); g_panic("lvalue required"); }
+        if (op.val == PV_RVAL) { g_print("efcc: '&' requires lvalue at line "); g_print_int(L.line); g_print("\n"); g_panic("lvalue required"); }
         /* 栈顶已经是地址, 保持不变, 但类型变为 ptr of op.ty */
         r.ty = ty_ptr(op.ty); r.val = PV_RVAL;
         return r;
@@ -1556,7 +1490,7 @@ static ExprRes parse_unary(int rbp_stack_off) {
         if (have_match) { sel_start = matched_start; sel_end = matched_end; }
         else if (default_start >= 0) { sel_start = default_start; sel_end = default_end; }
         else {
-            g_print("gcc: _Generic no matching association at line "); g_print_int(L.line); g_print("\n");
+            g_print("efcc: _Generic no matching association at line "); g_print_int(L.line); g_print("\n");
             g_panic("_Generic no match");
             sel_start = sel_end = 0;
         }
@@ -3004,7 +2938,7 @@ static void parse_static_assert(void) {
         com1_str("'\r\n  subst (len="); com1_dec(elen); com1_str("): '");
         for (int i=0;i<elen;i++) com1_raw(ebuf[i] ? ebuf[i] : '.');
         com1_str("'\r\n  cond=0 (evaluated false)\r\n");
-        g_print("gcc: _Static_assert failed at line "); g_print_int(L.line); g_print("\n");
+        g_print("efcc: _Static_assert failed at line "); g_print_int(L.line); g_print("\n");
         if (msg[0]) { g_print("  msg: "); g_print(msg); g_print("\n"); }
         g_panic("_Static_assert failed");
     }
@@ -5262,7 +5196,7 @@ static char *BuildBinary(long *out_size) {
         pro[pn++]=0xB0; pro[pn++]=(char)(ch); \
         pro[pn++]=0xEE; \
     } while(0)
-    PRO_TRACE('V');   /* 运行时: 入口第一条指令 — [VERSION 标记] 若串口仍出现'0'→跑的是旧 gcc.efs */
+    PRO_TRACE('V');   /* 运行时: 入口第一条指令 — [VERSION 标记] 若串口仍出现'0'→跑的是旧 efcc.efs */
     /* push rbp = 55 */
     pro[pn++]=0x55;
     PRO_TRACE('W');   /* [VERSION] 旧代码为 '1' */
@@ -5277,7 +5211,7 @@ static char *BuildBinary(long *out_size) {
     pro[pn++]=0x48; pro[pn++]=0x89; pro[pn++]=0x28;
     PRO_TRACE('4');   /* 运行时: 帧已保存到槽 (原'F') */
 
-    /* [BSS 清零 根因修复] gcc.c 子产物 objcopy 只抽取 .text/.rodata/.data 写 flat binary,
+    /* [BSS 清零 根因修复] efcc.c 子产物 objcopy 只抽取 .text/.rodata/.data 写 flat binary,
      *   内核 run_efs() 也不会清零 → 未初始化全局变量 (BSS) = 上次遗留随机垃圾
      *   → 全局指针/字符串指针指向随机地址 (比如 0xFFFF_FFFF_1410_C1C0) 立刻 #PF.
      *   [关键 BUG 修复] 之前 jz .Lbss_done 直接放在 movabs rcx 之后:
@@ -5407,7 +5341,7 @@ static char *BuildBinary(long *out_size) {
     /* [扩容] NOP 填充到 prolog_reserve = 356 字节 (之前 256, 故意扩大 100 字节以验证 1.efs 大小必定变化) */
     int prolog_reserve = 356;
     if (pn > prolog_reserve) {
-        g_print("gcc internal: prolog too large ("); g_print_int(pn); g_print(" > 256)\n");
+        g_print("efcc internal: prolog too large ("); g_print_int(pn); g_print(" > 256)\n");
         g_panic("prolog overflow");
     }
     while (pn < prolog_reserve) pro[pn++] = 0x90; /* NOP */
@@ -5516,7 +5450,7 @@ static int do_compile(void) {
     int rsz = API->file_read ? API->file_read(g_src_path, src, filesz-1) : -1;
     dbg_com1('3');  /* do_compile: file_read done */
     dbg_com1_hex((unsigned long)rsz);  /* 串口输出 rsz 的十六进制值 */
-    if (rsz < 0) { g_print("gcc: cannot open "); g_print(g_src_path); g_print("\n"); return 2; }
+    if (rsz < 0) { g_print("efcc: cannot open "); g_print(g_src_path); g_print("\n"); return 2; }
     src[rsz] = 0;
     dbg_com1('R');  /* src[rsz]=0 done */
 
@@ -5845,22 +5779,22 @@ static int do_compile(void) {
      *   且 prolog 里 main_addr 被我们在 build_binary 里填成 mn->addr (已经是 va_text_base+X → 正确 final VA). OK。 */
     int wr = write_efs(g_out_path, g_out_load_addr, bin, bsz);
 
-    g_print("gcc: compiled "); g_print(g_src_path); g_print(" -> "); g_print(g_out_path);
+    g_print("efcc: compiled "); g_print(g_src_path); g_print(" -> "); g_print(g_out_path);
     g_print(" ("); g_print_int((int)bsz); g_print(" bytes)\n");
 
     g_free(bin); g_free(src);
-    if (wr < 0) { g_print("gcc: write failed\n"); return 3; }
+    if (wr < 0) { g_print("efcc: write failed\n"); return 3; }
     return 0;
 }
 
-/* ========== gcc.efs 入口函数实现 ==========
+/* ========== efcc.efs 入口函数实现 ==========
  * [used] 防止 GCC -O2 dead code elimination 删除此函数定义。
- *   gcc_main 只被 _start 的 naked 内联汇编 call 引用, GCC 不识别该引用,
- *   会把 gcc_main 定义消除 → ld: undefined reference to gcc_main。
+ *   efcc_main 只被 _start 的 naked 内联汇编 call 引用, GCC 不识别该引用,
+ *   会把 efcc_main 定义消除 → ld: undefined reference to efcc_main。
  * [返回 int] _start 把 rax 当退出码传给内核 trampoline。 */
 __attribute__((used))
-int gcc_main(void) {
-    dbg_com1('M');  /* gcc_main entered */
+int efcc_main(void) {
+    dbg_com1('M');  /* efcc_main entered */
     struct kernel_api *api = API;
     if (api->magic != 0xEF110001) { dbg_com1('!'); return 1; }
     dbg_com1('A');  /* API magic OK */
@@ -5870,7 +5804,7 @@ int gcc_main(void) {
     if (api->get_args) api->get_args(args, sizeof(args)-1);
     dbg_com1('G');  /* get_args done */
     if (!args[0]) {
-        api->print("Usage: gcc <src.c|.cpp> [-o OUT.efs] [-T load_addr_hex]\n");
+        api->print("Usage: efcc <src.c|.cpp> [-o OUT.efs] [-T load_addr_hex]\n");
         api->print("Input command line: ");
         if (api->readline) api->readline(args, sizeof(args)-1);
     }
@@ -5880,7 +5814,7 @@ int gcc_main(void) {
     dbg_com1('D');  /* do_compile about to call */
     int rc = do_compile();
     dbg_com1('F');  /* do_compile finished */
-    api->print("gcc done (rc=");
+    api->print("efcc done (rc=");
     char nb[8]; nb[0]='0'+rc; nb[1]=0; api->print(nb); api->print(")\n");
     return rc;
 }

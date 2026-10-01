@@ -30,9 +30,9 @@ bootloader/BOOTX64.EFI: bootloader/bootloader.c bootloader/bootlogo.h
 #   解引用高规范地址 -> #PF (CR2=0xFFFFFFFFxxxxxxxx)。
 #   改用 -mcmodel=large (与 fileman.efs/setting.efs 一致), 用 64 位绝对寻址,
 #   符号地址按真实低地址加载, 不再产生高地址访问。
-kernel/kernel.elf: kernel/kernel.c kernel/link.ld drivers/drv_common.h bootloader/bootlogo.h
-	gcc -ffreestanding -nostdinc -nostdlib -Ikernel -Idrivers -Ibootloader -mno-red-zone -mcmodel=large -fno-pic -c kernel/kernel.c -o kernel/kernel.o
-	ld -nostdlib -T kernel/link.ld -o kernel/kernel.elf kernel/kernel.o
+kernel/efmkernel.elf: kernel/efmkernel.c kernel/link.ld drivers/drv_common.h bootloader/bootlogo.h
+	gcc -ffreestanding -nostdinc -nostdlib -Ikernel -Idrivers -Ibootloader -Ilib/include -mno-red-zone -mcmodel=large -fno-pic -c kernel/efmkernel.c -o kernel/efmkernel.o
+	ld -nostdlib -T kernel/link.ld -o kernel/efmkernel.elf kernel/efmkernel.o
 
 # [关键修复] 构建 .efs 文件头
 # POSIX sh 的 printf 不保证支持 \xNN (bash 才支持; dash 只支持 \0NNN 八进制)。
@@ -42,7 +42,7 @@ kernel/kernel.elf: kernel/kernel.c kernel/link.ld drivers/drv_common.h bootloade
 # [efmsfile] userman/fileman/setting 源文件与产物统一放 efmsfile/ 目录
 efmsfile/fileman.efs: efmsfile/fileman.c
 	@mkdir -p efmsfile
-	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ttext=0x300000 -o efmsfile/fileman.elf efmsfile/fileman.c
+	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ilib/include -Ttext=0x300000 -o efmsfile/fileman.elf efmsfile/fileman.c
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/fileman.elf efmsfile/fileman.bin
 	SIZE=$$(stat -c%s efmsfile/fileman.bin); \
 	bash -c "printf '\x00\x00\x30\x00\x00\x00\x00\x00' > efmsfile/fileman.efs"; \
@@ -58,7 +58,7 @@ efmsfile/fileman.efs: efmsfile/fileman.c
 # setting.efs: 设置程序, 加载地址 0x100000 (1MB, 不与内核 0x300000 冲突)
 efmsfile/setting.efs: efmsfile/setting.c
 	@mkdir -p efmsfile
-	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ttext=0x100000 -o efmsfile/setting.elf efmsfile/setting.c
+	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ilib/include -Ttext=0x100000 -o efmsfile/setting.elf efmsfile/setting.c
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/setting.elf efmsfile/setting.bin
 	SIZE=$$(stat -c%s efmsfile/setting.bin); \
 	bash -c "printf '\x00\x00\x10\x00\x00\x00\x00\x00' > efmsfile/setting.efs"; \
@@ -77,7 +77,7 @@ efmsfile/setting.efs: efmsfile/setting.c
 #   普通 gcc -Ttext 链接按函数定义顺序排放, 入口错位 → 内核跳入执行到垃圾函数.
 efmsfile/efmshell.efs: efmsfile/efmshell.c
 	@mkdir -p efmsfile
-	$(DRV_CC) -I. -o efmsfile/efmshell.o efmsfile/efmshell.c
+	$(DRV_CC) -I. -Ilib/include -o efmsfile/efmshell.o efmsfile/efmshell.c
 	$(DRV_OBJCOPY_STRIP) efmsfile/efmshell.o efmsfile/efmshell.stripped.o
 	$(DRV_LD_EFS) efmsfile/efmshell.elf -Ttext=0xA00000 efmsfile/efmshell.stripped.o
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/efmshell.elf efmsfile/efmshell.bin
@@ -86,7 +86,7 @@ efmsfile/efmshell.efs: efmsfile/efmshell.c
 # userman.efs: 用户管理程序, 加载地址 0x500000 (5MB)
 efmsfile/userman.efs: efmsfile/userman.c
 	@mkdir -p efmsfile
-	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ttext=0x500000 -o efmsfile/userman.elf efmsfile/userman.c
+	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ilib/include -Ttext=0x500000 -o efmsfile/userman.elf efmsfile/userman.c
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/userman.elf efmsfile/userman.bin
 	SIZE=$$(stat -c%s efmsfile/userman.bin); \
 	bash -c "printf '\x00\x00\x50\x00\x00\x00\x00\x00' > efmsfile/userman.efs"; \
@@ -102,7 +102,7 @@ efmsfile/userman.efs: efmsfile/userman.c
 # efmlogin.efs: 登录程序, 加载地址 0x600000 (6MB, 不与 userman 0x500000 冲突)
 efmsfile/efmlogin.efs: efmsfile/efmlogin.c
 	@mkdir -p efmsfile
-	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ttext=0x600000 -o efmsfile/efmlogin.elf efmsfile/efmlogin.c
+	gcc -ffreestanding -nostdlib -fno-pic -no-pie -mno-red-zone -mcmodel=large -Wl,--build-id=none -Ilib/include -Ttext=0x600000 -o efmsfile/efmlogin.elf efmsfile/efmlogin.c
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/efmlogin.elf efmsfile/efmlogin.bin
 	SIZE=$$(stat -c%s efmsfile/efmlogin.bin); \
 	bash -c "printf '\x00\x00\x60\x00\x00\x00\x00\x00' > efmsfile/efmlogin.efs"; \
@@ -161,7 +161,7 @@ endef
 # 12字节头: load_addr=0x00400000 小端 => \x00\x00\x40\x00, 保留4字节0
 efmsfile/efmloader.efs: efmsfile/efmloader.c drivers/drv_common.h
 	@mkdir -p efmsfile
-	$(DRV_CC) -I. -o efmsfile/efmloader.o efmsfile/efmloader.c
+	$(DRV_CC) -I. -Ilib/include -o efmsfile/efmloader.o efmsfile/efmloader.c
 	$(DRV_OBJCOPY_STRIP) efmsfile/efmloader.o efmsfile/efmloader.stripped.o
 	$(DRV_LD_EFS) efmsfile/efmloader.elf -Ttext=0x400000 efmsfile/efmloader.stripped.o
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/efmloader.elf efmsfile/efmloader.bin
@@ -172,7 +172,7 @@ efmsfile/efmloader.efs: efmsfile/efmloader.c drivers/drv_common.h
 # 12字节头: load_addr=0x00800000 小端 => \x00\x00\x80\x00, 保留4字节0
 efmsfile/efmcompositor.efs: efmsfile/efmcompositor.c bootloader/bootlogo.h
 	@mkdir -p efmsfile
-	$(DRV_CC) -Ibootloader -o efmsfile/efmcompositor.o efmsfile/efmcompositor.c
+	$(DRV_CC) -Ibootloader -Ilib/include -o efmsfile/efmcompositor.o efmsfile/efmcompositor.c
 	$(DRV_OBJCOPY_STRIP) efmsfile/efmcompositor.o efmsfile/efmcompositor.stripped.o
 	$(DRV_LD_EFS) efmsfile/efmcompositor.elf -Ttext=0x800000 efmsfile/efmcompositor.stripped.o
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/efmcompositor.elf efmsfile/efmcompositor.bin
@@ -184,7 +184,7 @@ efmsfile/efmcompositor.efs: efmsfile/efmcompositor.c bootloader/bootlogo.h
 # 12字节头: load_addr=0x00900000 小端 => \x00\x00\x90\x00, 保留4字节0
 efmsfile/efmAether.efs: efmsfile/efmAether.c
 	@mkdir -p efmsfile
-	$(DRV_CC) -I. -o efmsfile/efmAether.o efmsfile/efmAether.c
+	$(DRV_CC) -I. -Ilib/include -o efmsfile/efmAether.o efmsfile/efmAether.c
 	$(DRV_OBJCOPY_STRIP) efmsfile/efmAether.o efmsfile/efmAether.stripped.o
 	$(DRV_LD_EFS) efmsfile/efmAether.elf -Ttext=0x900000 efmsfile/efmAether.stripped.o
 	objcopy -O binary -j .text -j .rodata -j .data efmsfile/efmAether.elf efmsfile/efmAether.bin
@@ -222,43 +222,43 @@ drivers/Graphics.drv: drivers/graphics_drv.c drivers/drv_common.h efmsfile/ttf_f
 	objcopy -O binary -j .text -j .rodata -j .data drivers/Graphics.elf drivers/Graphics.bin
 	$(call bin_package,drivers/Graphics,\x00\x00\x80\x02\x00\x00\x00\x00,drv)
 
-# gcc.efs: 自包含 C/C++ 子集编译器, 加载地址 0x700000 (7MB, 不与 efmlogin 0x600000 冲突)
+# efcc.efs: 自包含 C/C++ 子集编译器, 加载地址 0x700000 (7MB, 不与 efmlogin 0x600000 冲突)
 # [入口对齐修复] 必须走 DRV_CC -> stripped.o -> DRV_LD_EFS (efm_flat.ld),
 #   与 efmshell/efmloader/efmAether 同流程, 保证 _start section(".text.start")
 #   排在 flat binary 首字节, 避免普通 gcc -Ttext 时静态函数插队导致内核跳入垃圾。
-# [SSE/FPU 例外] gcc.c 内部词法器用 double (L.fval, g_strtod), 编译器会用 XMM 寄存器
+# [SSE/FPU 例外] efcc.c 内部词法器用 double (L.fval, g_strtod), 编译器会用 XMM 寄存器
 #   做 double 赋值返回; 若带 DRV_CC 的 -mno-sse -mno-sse2 -mno-mmx 会报错
 #   "SSE register return with SSE disabled". 因此单独用 EFS_CC (保留硬件浮点 + SSE2).
 #   内核 EFS 沙盒进入前已经 fxrstor 初始化 x87 + SSE 状态, 用户态可安全用浮点。
-# [目录结构] 非系统程序存放于 /Program/<name>/ 下, 产物对应输出到 Program/gcc/gcc.efs
+# [目录结构] 非系统程序存放于 /Program/<name>/ 下, 产物对应输出到 Program/efcc/efcc.efs
 EFS_CC = gcc -c -ffreestanding -fno-pic -mno-red-zone -mcmodel=large \
             -fno-asynchronous-unwind-tables -fno-stack-protector \
             -fomit-frame-pointer -O2
-Program/gcc/gcc.efs: Program/gcc/gcc.c
-	@mkdir -p Program/gcc
-	$(EFS_CC) -I. -o Program/gcc/gcc.o Program/gcc/gcc.c
-	$(DRV_OBJCOPY_STRIP) Program/gcc/gcc.o Program/gcc/gcc.stripped.o
-	$(DRV_LD_EFS) Program/gcc/gcc.elf -Ttext=0x700000 Program/gcc/gcc.stripped.o
-	objcopy -O binary -j .text -j .rodata -j .data Program/gcc/gcc.elf Program/gcc/gcc.bin
-	SIZE=$$(stat -c%s Program/gcc/gcc.bin); \
-	bash -c "printf '\x00\x00\x70\x00\x00\x00\x00\x00' > Program/gcc/gcc.efs"; \
+Program/efcc/efcc.efs: Program/efcc/efcc.c
+	@mkdir -p Program/efcc
+	$(EFS_CC) -I. -Ilib/include -o Program/efcc/efcc.o Program/efcc/efcc.c
+	$(DRV_OBJCOPY_STRIP) Program/efcc/efcc.o Program/efcc/efcc.stripped.o
+	$(DRV_LD_EFS) Program/efcc/efcc.elf -Ttext=0x700000 Program/efcc/efcc.stripped.o
+	objcopy -O binary -j .text -j .rodata -j .data Program/efcc/efcc.elf Program/efcc/efcc.bin
+	SIZE=$$(stat -c%s Program/efcc/efcc.bin); \
+	bash -c "printf '\x00\x00\x70\x00\x00\x00\x00\x00' > Program/efcc/efcc.efs"; \
 	if command -v xxd >/dev/null 2>&1; then \
-	  printf '%08x' $$SIZE | xxd -r -p >> Program/gcc/gcc.efs; \
+	  printf '%08x' $$SIZE | xxd -r -p >> Program/efcc/efcc.efs; \
 	else \
 	  b0=$$(( (SIZE >> 24) & 0xFF )); b1=$$(( (SIZE >> 16) & 0xFF )); \
 	  b2=$$(( (SIZE >> 8)  & 0xFF )); b3=$$(( SIZE & 0xFF )); \
-	  bash -c "printf '\x'$$(printf '%02x' $$b0)'\x'$$(printf '%02x' $$b1)'\x'$$(printf '%02x' $$b2)'\x'$$(printf '%02x' $$b3)" >> Program/gcc/gcc.efs; \
+	  bash -c "printf '\x'$$(printf '%02x' $$b0)'\x'$$(printf '%02x' $$b1)'\x'$$(printf '%02x' $$b2)'\x'$$(printf '%02x' $$b3)" >> Program/efcc/efcc.efs; \
 	fi; \
-	cat Program/gcc/gcc.bin >> Program/gcc/gcc.efs
-# 兼容别名: make gcc.efs 等价于 Program/gcc/gcc.efs
-gcc.efs: Program/gcc/gcc.efs
-	@cp -f Program/gcc/gcc.efs gcc.efs 2>/dev/null || true
+	cat Program/efcc/efcc.bin >> Program/efcc/efcc.efs
+# 兼容别名: make efcc.efs 等价于 Program/efcc/efcc.efs
+efcc.efs: Program/efcc/efcc.efs
+	@cp -f Program/efcc/efcc.efs efcc.efs 2>/dev/null || true
 
-disk.img: bootloader/BOOTX64.EFI kernel/kernel.elf \
+disk.img: bootloader/BOOTX64.EFI kernel/efmkernel.elf \
           efmsfile/efmlogin.efs efmsfile/efmloader.efs efmsfile/efmshell.efs \
           efmsfile/efmcompositor.efs efmsfile/efmAether.efs \
           efmsfile/fileman.efs efmsfile/setting.efs efmsfile/userman.efs \
-          drivers/Graphics.drv drivers/ahci.drv Program/gcc/gcc.efs build_disk.py
+          drivers/Graphics.drv drivers/ahci.drv Program/efcc/efcc.efs build_disk.py
 	python3 build_disk.py
 
 disk.vmdk: disk.img
@@ -371,10 +371,10 @@ run: disk.img
   -device ide-hd,drive=disk0,bus=ahci.0
 
 clean:
-	rm -f bootloader/*.o bootloader/BOOTX64.EFI kernel/*.o kernel/kernel.elf disk.img disk.vmdk \
+	rm -f bootloader/*.o bootloader/BOOTX64.EFI kernel/*.o kernel/*.elf disk.img disk.vmdk \
 	      efmsfile/*.elf efmsfile/*.bin efmsfile/*.efs efmsfile/*.o efmsfile/*.tmp_head \
-	      gcc.elf gcc.bin gcc.efs gcc.tmp_head \
-	      Program/gcc/*.elf Program/gcc/*.bin Program/gcc/*.efs Program/gcc/*.tmp_head \
+	      efcc.elf efcc.bin efcc.efs efcc.tmp_head \
+	      Program/efcc/*.elf Program/efcc/*.bin Program/efcc/*.efs Program/efcc/*.tmp_head Program/efcc/*.o Program/efcc/*.stripped.o \
 	      drivers/*.o drivers/*.stripped.o drivers/*.elf drivers/*.bin drivers/*.drv drivers/*.tmp_head \
 	      drivers/Graphics.o drivers/Graphics.stripped.o drivers/Graphics.elf \
 	      drivers/Graphics.bin drivers/Graphics.drv \

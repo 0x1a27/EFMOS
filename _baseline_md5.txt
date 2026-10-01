@@ -1,5 +1,5 @@
 da3a455847fe39aedcc14e1b705a3e37  bootloader/BOOTX64.EFI
-ef3667212ee70ef98c7859bfaef9a9a3  kernel/kernel.elf
+ef3667212ee70ef98c7859bfaef9a9a3  kernel/efmkernel.elf
 9121562aff543ea7f0d2178fa68b953d  efmsfile/fileman.efs
 4291689072f756b6a56908cf66547eed  efmsfile/setting.efs
 4f94bd2c39f352f9ce4f7c94755f1edc  efmsfile/userman.efs
@@ -11,5 +11,5 @@ e3cb6cc2d721adab3ca48e27ed2f623e  efmsfile/efmloader.efs
 MISSING drivers/vga.drv
 1c349f0f32b28c6b3976554223fd273d  drivers/ahci.drv
 ad832e4c4ecaa0c3297227c678f5e09a  drivers/Graphics.drv
-4d89acc6c363656f25eab3ac97a3089d  Program/gcc/gcc.efs
+4d89acc6c363656f25eab3ac97a3089d  Program/efcc/efcc.efs
 67d940284e473dd27a555cb774bc1dc9  disk.img

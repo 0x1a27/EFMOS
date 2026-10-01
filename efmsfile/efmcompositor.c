@@ -47,11 +47,7 @@
 #include "bootlogo.h"
 
 /* ========== 内核 API 表 (必须与 kernel.c struct kernel_api 完全一致) ========== */
-struct efs_dirent {
-    char name[64];
-    unsigned int size;
-    unsigned int is_dir;
-};
+#include "efmos/efm_api.h"
 
 /* WM 共享状态结构 (必须与 kernel.c 一致) */
 #define EFM_WM_MAX_WIN    32
@@ -124,67 +120,7 @@ struct efm_wm_snapshot {
     int menu_item_count;  /* 菜单项总数 (来自 efmAether 的 menu_count) */
 };
 
-struct kernel_api {
-    unsigned int magic;
-    unsigned int _pad;
-    void (*put_char)(char);
-    void (*print)(const char*);
-    void (*print_utf8)(const char*);
-    void (*clear_screen)(void);
-    int  (*file_read)(const char*, char*, int);
-    int  (*file_write)(const char*, const char*, int);
-    int  (*file_exists)(const char*);
-    int  (*mkdir)(const char*);
-    int  (*readline)(char*, int);
-    void (*reboot)(void);
-    int  (*get_lang)(void);
-    void (*set_lang)(int);
-    int  (*save_settings)(void);
-    int  (*mouse_poll)(void *out_event);
-    void (*mouse_set_cursor)(int show);
-    int  (*file_list)(const char *dir_path, struct efs_dirent *out, int max_count);
-    int  (*file_delete)(const char *path);
-    int  (*key_poll)(void);
-    int  (*get_current_user)(char *buf, int bufsz);
-    int  (*set_current_user)(const char *username);
-    int  (*user_list)(struct efs_dirent *out, int max_count);
-    int  (*user_create)(const char *username);
-    int  (*user_delete)(const char *username);
-    void *(*malloc)(unsigned long);
-    void  (*free)(void*);
-    int   (*spawn)(const char *name, const char *args);
-    int   (*get_args)(char *buf, int max);
-    int font_w;
-    int font_h;
-    int current_pid;
-    int wm_enabled;
-    void (*put_pixel)(int x, int y, unsigned int c);
-    void (*fill_rect)(int x1, int y1, int x2, int y2, unsigned int c);
-    void (*draw_rect)(int x1, int y1, int x2, int y2, unsigned int border, unsigned int fill);
-    void (*get_viewport)(int *cx, int *cy, int *cw, int *ch);
-    void (*get_fb_info)(unsigned int *hr, unsigned int *vr, unsigned int *ppsl, unsigned int **fb_base);
-    int  (*blit_to_window)(const void *src, int src_w, int src_h, int src_pitch);
-    int   (*load_driver)(const char *path);
-    int   (*driver_count)(void);
-    int   (*driver_list)(char out_names[][32], int max);
-    void  (*sleep_ms)(unsigned long ms);
-    void  (*yield)(void);
-    int   (*get_pid)(void);
-    int   (*spawn_async)(const char *name, const char *args);
-    int   (*set_priority)(int pid, int nice);
-    int   (*get_wm_snapshot)(void *out, int max_bytes);
-    void  (*set_compositor_active)(int active);
-    void *(*dlsym)(const char *name);   /* 从已加载 SO 解析符号 (Mesa EGL/GL) */
-    int   (*get_backbuffer)(void **out_ptr, int *out_pitch, int *out_w, int *out_h);
-    void  (*mark_dirty_rect)(int x1, int y1, int x2, int y2);
-    void  (*flush_now)(void);
-    int   (*draw_char_unicode)(int x, int y, unsigned int codepoint,
-                               unsigned int fg, unsigned int bg, int cell_w, int cell_h);
-    void  (*set_gfx_info)(void *info);
-};
 
-#define API_MAGIC  0xEF110001
-#define API        ((volatile struct kernel_api*)0x9000)
 
 /* ========== 渲染信息共享结构 (0x6000) ==========
  * 【职责分工】
